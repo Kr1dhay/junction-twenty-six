@@ -1,0 +1,26 @@
+{
+  "name": "edgecare",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.11.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @edgecare/crm-web dev",
+    "build": "pnpm --filter @edgecare/crm-web build",
+    "start": "pnpm --filter @edgecare/crm-web start",
+    "typecheck": "pnpm -r typecheck",
+    "test": "tsx --test packages/shared-types/tests/*.test.ts apps/crm-web/tests/*.test.ts",
+    "check": "pnpm typecheck && pnpm test",
+    "schema": "tsx scripts/generate-schema.ts",
+    "ios:generate": "xcodegen generate --spec project.yml",
+    "test:swift": "swift test --package-path packages/edgecare-core"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0",
+    "zod": "^4.1.0"
+  }
+}

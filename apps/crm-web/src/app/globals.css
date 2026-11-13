@@ -1,0 +1,7 @@
+@import "tailwindcss";
+:root { color-scheme: light; font-family: system-ui, sans-serif; background: #f5f5f5; color: #171717; }
+button, select, input { font: inherit; }
+button, select, input, a { min-height: 44px; }
+button, select, input { border: 1px solid #737373; border-radius: 8px; padding: 8px 12px; background: white; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }

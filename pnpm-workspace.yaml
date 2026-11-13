@@ -1,0 +1,4 @@
+packages:
+  - apps/crm-web
+  - packages/shared-types
+  - demo/remotion

@@ -1,0 +1,35 @@
+name: Scaffold checks
+on: [push, pull_request]
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm schema && git diff --exit-code -- packages/shared-types/schema
+      - run: pnpm build
+  apple:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path packages/edgecare-core
+      - run: brew install xcodegen
+      - run: xcodegen generate --spec project.yml
+      - run: |
+          for scheme in EdgeCareKiosk EdgeCareDoctor EdgeCarePatient; do
+            xcodebuild -project EdgeCare.xcodeproj -scheme "$scheme" -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build || exit 1
+          done
+  registry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p edgecare-registry

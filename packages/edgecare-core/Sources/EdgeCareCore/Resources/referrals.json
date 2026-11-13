@@ -1,0 +1,89 @@
+[
+  {
+    "referral_id": "00000000-0000-4000-8000-000000000001",
+    "created_at": "2026-11-14T09:00:00.000Z",
+    "source": "kiosk",
+    "kiosk_id": null,
+    "language": "so",
+    "symptoms": [
+      "demo_only"
+    ],
+    "free_text_summary": "Synthetic example: a changing skin mark, discussed during a demo consultation.",
+    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "risk_score": 75,
+    "risk_band": "high",
+    "recommended_specialty": "dermatology",
+    "letter_scan": {
+      "present": false,
+      "extracted_text": null
+    },
+    "lesion_photo": {
+      "present": false,
+      "assessment": null
+    },
+    "signature_template_encrypted": "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",
+    "triage_detail_encrypted": "AgICAgICAgICAgICWB7NrmRuMt73Gd/gE8qjoR4UNecSLA4jBTK6iZc=",
+    "salt": "AQEBAQEBAQEBAQEBAQEBAQ==",
+    "commitment_hash": "282c03e1ed75e878b904fd3d159affdd8af1c9a9be1a322e7988e5603ed5ad3f",
+    "status": "open",
+    "expires_at": "2030-01-01T00:00:00.000Z"
+  },
+  {
+    "referral_id": "00000000-0000-4000-8000-000000000002",
+    "created_at": "2026-11-13T09:00:00.000Z",
+    "source": "patient_app",
+    "kiosk_id": null,
+    "language": "fi",
+    "symptoms": [
+      "demo_only"
+    ],
+    "free_text_summary": "Synthetic example: help understanding an invitation to screening.",
+    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "risk_score": 45,
+    "risk_band": "medium",
+    "recommended_specialty": "gynaecology",
+    "letter_scan": {
+      "present": true,
+      "extracted_text": "Synthetic screening invitation."
+    },
+    "lesion_photo": {
+      "present": false,
+      "assessment": null
+    },
+    "signature_template_encrypted": "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",
+    "triage_detail_encrypted": "BAQEBAQEBAQEBAQEaBaACXxnDd4mCZv1KEpa/QpKTgF+6hzLDkf10WA=",
+    "salt": "AgICAgICAgICAgICAgICAg==",
+    "commitment_hash": "23c836d6e1834583087a4a0e471ad6f1b60cae8c37eb8c7c137000ea5a371b75",
+    "status": "open",
+    "expires_at": "2030-01-01T00:00:00.000Z"
+  },
+  {
+    "referral_id": "00000000-0000-4000-8000-000000000003",
+    "created_at": "2026-11-12T09:00:00.000Z",
+    "source": "kiosk",
+    "kiosk_id": null,
+    "language": "en",
+    "symptoms": [
+      "demo_only"
+    ],
+    "free_text_summary": "Synthetic example: a question about accessing local care.",
+    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "risk_score": 15,
+    "risk_band": "low",
+    "recommended_specialty": "general practice",
+    "letter_scan": {
+      "present": false,
+      "extracted_text": null
+    },
+    "lesion_photo": {
+      "present": false,
+      "assessment": null
+    },
+    "signature_template_encrypted": "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",
+    "triage_detail_encrypted": "BgYGBgYGBgYGBgYGgTpx2wKmUnvQJyGVWFvwyzu9u8IsopaBkS7HZN0=",
+    "salt": "AwMDAwMDAwMDAwMDAwMDAw==",
+    "commitment_hash": "97b5f4d68d8a1d11545a849d403bba86036d190591a51abbc751d50be0c64223",
+    "status": "open",
+    "expires_at": "2026-11-13T10:00:00.000Z"
+  }
+]
