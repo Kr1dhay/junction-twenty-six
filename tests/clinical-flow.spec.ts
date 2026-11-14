@@ -22,8 +22,8 @@ test("clinician sees enrollment arrive, single-use spend propagate and stale dat
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
-  await page.getByRole("button", { name: "Enter clinician demo" }).click();
   await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
   await expect(page.locator(".referral-row")).toHaveCount(3);
   await page.getByRole("combobox", { name: "Risk band", exact: true }).selectOption("high");
   await expect(page.locator(".referral-row")).toHaveCount(1);
@@ -72,8 +72,25 @@ test("clinician sees enrollment arrive, single-use spend propagate and stale dat
     }
   }
   await page.setViewportSize({ width: 844, height: 1100 });
-  await expect(page.getByRole("button", { name: "Sign out of demo" })).toBeVisible();
-  await page.getByRole("button", { name: "Sign out of demo" }).click();
-  await expect(page.getByRole("button", { name: "Enter clinician demo" })).toBeVisible();
+  await context.clearCookies();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect.poll(async () => (await context.cookies()).some(cookie => cookie.name === "edgecare_demo_session")).toBeTruthy();
+  await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
+  await expect(page.locator(".referral-row")).toHaveCount(4);
   expect(errors).toEqual([]);
+});
+
+test("automatic CRM entry can retry a failed session request without a code", async ({ page }) => {
+  let attempts = 0;
+  await page.route("**/demo/session", async route => {
+    attempts++;
+    if (attempts === 1) await route.fulfill({ status: 503, json: { error: "Synthetic test outage" } });
+    else await route.continue();
+  });
+  await page.goto("/");
+  await expect(page.locator(".error-banner[role=alert]")).toContainText("Unable to open the demo workspace");
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
+  expect(attempts).toBe(2);
 });

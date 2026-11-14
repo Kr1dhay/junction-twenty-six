@@ -57,10 +57,6 @@ export function ReferralDashboard() {
   const detail = visible.find(record => record.referral_id === selected) ?? visible[0];
   const activeFilters = Boolean(risk || specialty || from || to || search);
   const reset = () => { setRisk(""); setSpecialty(""); setFrom(""); setTo(""); setSearch(""); setStatus(""); };
-  async function signOut() {
-    try { const response = await fetch("/demo/session", { method: "DELETE" }); if (response.ok) router.refresh(); else setError("Unable to end the demo session. Please retry."); }
-    catch { setError("Unable to end the demo session. Please retry."); }
-  }
   return <div className="workspace">
     <a className="skip-link" href="#referrals">Skip to referrals</a>
     <aside className="sidebar" aria-label="Workspace navigation">
@@ -70,7 +66,7 @@ export function ReferralDashboard() {
         {(["open", "spent", "expired"] as const).map(value => <button key={value} className={`nav-item ${status === value ? "active" : ""}`} onClick={() => setStatus(value)} aria-current={status === value ? "page" : undefined}><i className={`status-dot ${value}`} aria-hidden="true" />{value === "open" ? "Awaiting verification" : value === "spent" ? "Verified referrals" : "Expired"}<span>{referrals.filter(record => record.status === value).length}</span></button>)}
       </nav>
       <div className="sidebar-note"><Icon kind="shield" /><strong>Anonymous by design</strong><p>No names. No contact details. Only what is needed to continue care.</p></div>
-      <div className="session"><div className="avatar" aria-hidden="true">EC</div><div><strong>Demo clinician</strong><small>Synthetic workspace</small></div><button className="text-button" onClick={() => void signOut()} aria-label="Sign out of demo">Exit</button></div>
+      <div className="session"><div className="avatar" aria-hidden="true">EC</div><div><strong>Demo clinician</strong><small>Synthetic workspace</small></div></div>
     </aside>
     <div className="workspace-body">
       <header className="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>Referrals</strong></span><span className="demo-tag">SYNTHETIC DEMO</span></header>

@@ -34,12 +34,6 @@ export const isLoopback = (request: Request) => {
   const url = externalURL(request);
   return Boolean(url && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
 };
-export function sessionAccessGuard(request: Request): Response | undefined {
-  if (!sameOrigin(request)) return json({ error: "Cross-origin requests are not allowed" }, 403);
-  const token = process.env.EDGECARE_CLINICIAN_TOKEN;
-  const bearer = request.headers.get("authorization");
-  if (token ? !bearer || !equal(bearer, `Bearer ${token}`) : !isLoopback(request)) return json({ error: "An authorized clinician demo token is required" }, 401);
-}
 export function createSession() {
   const payload = `${Date.now() + 8 * 60 * 60 * 1000}.${randomBytes(16).toString("hex")}`;
   return `${payload}.${signature(payload)}`;
@@ -64,7 +58,7 @@ export function accessGuard(request: Request, role: "clinician" | "issuer"): Res
   const configured = role === "clinician" ? process.env.EDGECARE_CLINICIAN_TOKEN : process.env.EDGECARE_ISSUER_TOKEN;
   const bearer = request.headers.get("authorization");
   if (configured && bearer && equal(bearer, `Bearer ${configured}`)) return;
-  // Explicit synthetic-only local adapter. Browsers must enter the demo workspace.
+  // Explicit synthetic-only local adapter. Browsers receive a demo workspace session.
   const loopback = isLoopback(request);
   const native = !request.headers.has("sec-fetch-site") && !request.headers.has("origin");
   if (!configured && loopback && native) return;

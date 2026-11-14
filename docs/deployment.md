@@ -21,7 +21,7 @@ The command verifies backend health and relaunches installed kiosk, doctor and p
 
 When native code changes, append `--rebuild` to run Swift tests, regenerate the Xcode project, build and reinstall the apps on those same booted simulators before connecting. This is required for the hands-free voice update. Build logs are saved under `artifacts/hosted-build/`.
 
-The browser CRM requires the clinician demo token from the same private configuration. A native patient must still consent before any audio or text is sent to providers. Physical devices need their own Xcode signing/install and the same connected environment settings.
+The browser CRM opens automatically without a demo code or login. Its synthetic-only session is issued by the same-origin demo endpoint; clinician and issuer device tokens still protect direct device API calls. The browser demo is public to anyone with its URL. A native patient must still consent before any audio or text is sent to providers. Physical devices need their own Xcode signing/install and the same connected environment settings.
 
 ## Verify and redeploy
 

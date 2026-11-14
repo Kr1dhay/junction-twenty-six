@@ -34,7 +34,7 @@ async function main() {
   assert.equal((await call("/referrals")).status, 401);
   assert.equal((await call("/demo/voice/turn", undefined, { consent: true, text: "Hello" })).status, 401);
   assert.equal((await call("/demo/voice/turn", issuer, { consent: false, text: "Hello" })).status, 400);
-  const session = await call("/demo/session", clinician, {}, "POST", { origin });
+  const session = await call("/demo/session", undefined, {}, "POST", { origin });
   assert.equal(session.status, 200);
   const cookie = session.headers.get("set-cookie")!;
   assert.ok(cookie.includes("Secure") && cookie.includes("HttpOnly"));
