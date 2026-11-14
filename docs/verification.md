@@ -48,6 +48,42 @@ The installed source previously had no ambient-noise calibration in either voice
 
 Six Swift regression tests cover ambient-noise estimation, invalid samples, recalibration, steady noise that exceeded the former fixed cutoff, quiet-speech pre-roll, playback suppression and using the same threshold for legacy endpointing. Swift syntax parsing passes. These tests, full Swift typechecking and microphone/speaker behavior still require the Mac rebuild; the Linux-hosted provider probes do not establish native acoustic performance. The hosted backend and provider configuration are unchanged by this native-only fix.
 
+## Automatic endpointing and barge-in follow-up, 2026-11-14
+
+The follow-up replaces the explicit calibration UI and playback masking with continuous level adaptation and duplex capture. Local sustained speech stops queued playback without restarting the capture tap. The client discards superseded output until interruption acknowledgement or the old turn's completion, and keeps capture active through closing playback. A completed server turn with still-buffered local speech can be interrupted without waiting for a server event that will never arrive.
+
+On the Mac, 33 focused Swift tests pass: adaptive noise/pause/onset/pre-roll and interruption-gate checks, existing Live/profile/PCM and voice-loop tests, legacy calibration compatibility tests, translated echo-warning/no-calibration-copy checks, and wallet-key migration tests. The test target needed minimal fixes for outdated throwing API calls and a missing spend operation ID in `ReferralUpdateTests`. The run also exposed CRLF being a single Swift grapheme in token validation; scalar-based rejection fixes that regression. The full suite has separate existing failures in durable spend receipts and referral mocks; these are not acoustic failures and are not changed here.
+
+Reinstallation also exposed a startup blocker: the old wallet key account used the absolute app sandbox path, which can change when installing a new build. The new account is scoped to the app and home-relative storage path. Migration searches existing legacy keys and only adopts a key that authenticates every existing encrypted wallet/outbox file. It never discards a cache or silently replaces a missing key over existing ciphertext.
+
+Both signed simulator builds succeeded and were installed/relaunched against the hosted backend. Installed binary hashes match the final builds. The doctor app recovered its existing encrypted cache and loaded hosted referrals without a data reset; the kiosk relaunched successfully. Live acoustic verification remains outstanding.
+
+### Simulator capture failure found during live retry
+
+The live retry did not hear speech. Simulator logs showed the capture engine starting at 16:02:10.052 and stopping at 16:02:10.060 due to an I/O configuration change; the next attempt repeated this at 16:02:27.408–.415. The input tap was installed later without ensuring the engine was running, so synthetic gate tests could not detect this failure.
+
+The fix defers capture-engine startup until after tap installation, explicitly starts stopped engines, and rebuilds the tap/converter when an engine configuration notification stops input. A stream watchdog reports a microphone error after three seconds with no converted buffers instead of treating a dead stream as patient silence. State-only logs report engine state, buffer counts, and aggregate peak level; no audio content, transcripts, or credentials are logged. Connection setup has a separate translated status rather than incorrectly showing speech processing immediately after Start. Live buffer delivery and end-to-end pause/interruption behavior still require verification.
+
+### Gemini-only hybrid VAD and verified interruption sequence
+
+A later live retry confirmed 10–11 microphone buffers per second, foreground peaks around −15 to −19 dB, room noise around −33 to −35 dB, and local pause detection. It also exposed a Swift 6 queue-isolation crash in the new audio configuration observer. Audio notification callbacks now extract Sendable metadata on their source queue and hop explicitly to the main actor; regression tests post synthetic notifications from background queues. Tap and playback completion callbacks are explicitly Sendable too.
+
+The voice UI now calls Gemini Live directly, with no legacy ElevenLabs/HTTP fallback and no engine-discovery round trip. Consent and microphone permission copy identify Google Gemini. Gemini-specific microphone input sends ordered 16 kHz PCM followed by `audioStreamEnd` on a 700 ms pause, following Google's documented hybrid VAD. Capture stays active locally while idle input is withheld until the next onset. Barge-in uses a stronger/longer onset than ordinary listening; nearby voices can still resemble the intended speaker.
+
+A direct hosted Gemini probe with synthetic audio passed: setup ready after 3.43 seconds including token issuance; first PCM arrived 1.48 seconds after `audioStreamEnd`; interrupting streamed output produced `interrupted: true` followed by a **separate empty `turnComplete: true`**, then a replacement tool update and audio. The separate completion is now discarded instead of failing the old per-turn profile guard. Gemini proactive completions without a profile are no longer treated as service failures, and cancelled tool IDs are tracked. This confirms protocol behavior, not noisy-room microphone accuracy. The user's hackathon environment produced false interruptions while they were silent, so that acoustic requirement remains a live verification item.
+
+The final focused run passes 30 tests covering Gemini wire payloads and pause/resume ordering, cancellation and split completion markers, stronger playback onset gating, background-queue audio notifications, current Gemini-only consent text, and storage-key migration.
+
+### Normal-volume barge-in follow-up
+
+The user confirmed the Gemini conversation works, but normal-volume speech did not interrupt playback. The playback detector required every onset frame to exceed a 16 dB noise margin; softer syllables reset onset completely. Playback onset now uses a 13 dB margin and 3 dB candidate hysteresis over the existing 240 ms confirmation interval. The normal listening threshold/timing is unchanged. This preserves spike rejection without requiring uniformly loud interruption speech.
+
+The focused run now passes 33 tests, including regressions for varying-volume interruption syllables, isolated loud spikes followed by quiet, and forwarding all interruption pre-roll PCM to Gemini followed by exactly one finalization marker. A signed kiosk build and live interruption retry are required before claiming acoustic success.
+
+The signed kiosk build succeeded, but the live retry failed acoustic validation: the assistant repeatedly interrupted itself and its spoken fragments appeared as user turns. The logs confirm repeated local/server interruption acknowledgements, not a lost microphone stream. Normal-volume barge-in is therefore **not verified** on this speaker route; lowering an amplitude threshold alone does not resolve playback echo or competing hackathon voices. Preserve this as an open issue when integrating the EDI theme.
+
+These deterministic tests do not establish real microphone accuracy, echo cancellation, or end-to-end inference latency. Verify room-noise pauses and interruptions (including closing replies and buffered playback) on the installed simulator/device. Routes without Apple echo cancellation require headphones to avoid feedback; a level gate alone cannot distinguish every loud noise from speech. No backend deployment or server VAD change is required.
+
 Not executable on this host: Swift/Xcode native builds, the 20 shared Swift tests, simulator interaction, physical-device behavior, Anchor/Rust compilation or devnet transactions. The Mac launcher performs Swift tests and native builds before launch; CI defines macOS simulator builds and Rust tests, but those jobs have not been run here. No exact iOS/iPadOS 27.2.1 device run is claimed.
 
 Remotion TypeScript and bundling pass. A still render was attempted but failed on this host: Remotion requires glibc 2.35+ while this Linux installation has 2.31, and the browser-render process was killed. Render the composition on the Mac or a compatible host. No rendered pitch video or recorded native footage is claimed.

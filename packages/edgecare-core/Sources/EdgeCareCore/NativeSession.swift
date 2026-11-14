@@ -24,17 +24,29 @@ public actor NativeSession {
         self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
+        let account = storageAccount(directory: directory, home: URL(fileURLWithPath: NSHomeDirectory()),
+                                     bundleIdentifier: Bundle.main.bundleIdentifier ?? "org.edgecare")
         let keychain = KeychainStore()
-        let account = storageAccount(directory: directory)
-        // Carry over a key stored under the old absolute-path name so this install keeps its data.
-        if try keychain.read(account: account) == nil,
-           let legacy = try keychain.read(account: "wallet-v1-" + digest(directory.standardizedFileURL.path)), legacy.count == 32 {
-            try keychain.save(legacy, account: account)
+        if let existing = try keychain.read(account: account) {
+            guard existing.count == 32 else { throw CoreError.invalidConfiguration }
+            return existing
         }
-        return try keychain.walletKey(account: account)
+        let names = ["local-wallet.enc", "local-outbox.enc", "connected-wallet.enc", "connected-outbox.enc", "connected-consultations.enc"]
+        let files = try names.compactMap { name -> Data? in
+            let url = directory.appendingPathComponent(name)
+            return FileManager.default.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
+        }
+        // Main and the voice branch introduced different stable v2 account names.
+        // Preserve either install's data, but only migrate a key that authenticates
+        // all existing encrypted stores, including the consultation outbox.
+        if let previous = try keychain.read(account: storageAccount(directory: directory)), previous.count == 32,
+           files.isEmpty || KeychainStore.matchingWalletKey(encryptedFiles: files, candidates: [previous]) != nil {
+            try keychain.save(previous, account: account)
+            return previous
+        }
+        return try keychain.walletKey(account: account, authenticating: files)
     }
-    /// Names the key by the directory's path inside the app's home. iOS moves the container to a new
-    /// UUID path on every reinstall or update but keeps its files, so an absolute path would orphan them.
+    /// Compatibility with main's home-relative account naming.
     static func storageAccount(directory: URL, home: String = NSHomeDirectory()) -> String {
         var path = directory.standardizedFileURL.resolvingSymlinksInPath().path
         let root = URL(fileURLWithPath: home).standardizedFileURL.resolvingSymlinksInPath().path
@@ -43,6 +55,12 @@ public actor NativeSession {
     }
     private static func digest(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    static func storageAccount(directory: URL, home: URL, bundleIdentifier: String) -> String {
+        let path = directory.standardizedFileURL.path, root = home.standardizedFileURL.path
+        let relative = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count)) : path
+        let identity = bundleIdentifier + ":" + relative
+        return "wallet-v2-" + SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
     }
     public static func local(storageDirectory: URL, seedDemo: Bool = false) async throws -> NativeSession {
         let key = try storageKey(directory: storageDirectory)

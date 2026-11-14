@@ -20,8 +20,12 @@ public struct SignaturePad: View {
                 }
             }
             .frame(height: 190)
-            .background(.background)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.secondary, lineWidth: 1))
+            .background(EdgeCareStyle.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(EdgeCareStyle.hairline, lineWidth: 1.5))
+            .overlay(alignment: .bottomLeading) {
+                Image(systemName: "pencil.line").font(.title3).foregroundStyle(EdgeCareStyle.mulberry.opacity(0.35))
+                    .padding(14).allowsHitTesting(false).accessibilityHidden(true)
+            }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -37,18 +41,42 @@ public struct SignaturePad: View {
     }
 }
 
+/// Four-digit code entry drawn as four cells. A hidden SecureField does the real input, so the
+/// number pad, paste and VoiceOver keep working; the cells only show progress as dots.
 struct PINField: View {
     let title: String
     @Binding var value: String
+    @FocusState private var focused: Bool
+    @Environment(\.isEnabled) private var isEnabled
     var body: some View {
-        SecureField(title, text: $value)
-            #if os(iOS)
-            .keyboardType(.numberPad)
-            .textContentType(.newPassword)
-            #endif
-            .textFieldStyle(.roundedBorder)
-            .frame(minHeight: 48)
-            .onChange(of: value) { _, new in value = String(new.filter { $0.isASCII && $0.isNumber }.prefix(4)) }
-            .accessibilityLabel(title)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(EdgeCareStyle.graphite)
+            ZStack(alignment: .leading) {
+                SecureField(title, text: $value)
+                    #if os(iOS)
+                    .keyboardType(.numberPad)
+                    .textContentType(.newPassword)
+                    #endif
+                    .focused($focused)
+                    .foregroundStyle(.clear).tint(.clear)
+                    .frame(width: 1, height: 1).opacity(0.02)
+                    .onChange(of: value) { _, new in value = String(new.filter { $0.isASCII && $0.isNumber }.prefix(4)) }
+                    .accessibilityLabel(title)
+                HStack(spacing: 12) {
+                    ForEach(0..<4, id: \.self) { index in
+                        let active = focused && index == min(value.count, 3)
+                        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        shape.fill(EdgeCareStyle.card)
+                            .overlay(shape.strokeBorder(active ? EdgeCareStyle.magenta : EdgeCareStyle.hairline, lineWidth: active ? 2 : 1.5))
+                            .overlay { if index < value.count { Circle().fill(EdgeCareStyle.graphite).frame(width: 12, height: 12) } }
+                            .frame(width: 54, height: 60)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { if isEnabled { focused = true } }
+                .accessibilityHidden(true)
+            }
+            .opacity(isEnabled ? 1 : 0.5)
+        }
     }
 }

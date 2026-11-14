@@ -41,7 +41,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the shared Edge-Care demo backend on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record your concern or a translated doctor consultation; with consent, audio is streamed to ElevenLabs and Google Gemini for translation and notes and is never stored. You can use the form offline.</string>
+	<string>With consent, voice intake streams audio to Google Gemini; translated doctor consultations use ElevenLabs and Google Gemini. Consultation audio is not stored. You can use the form offline.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Optional form dictation uses Apple on-device recognition. Online conversation is a separate consent-based service.</string>
 </dict>

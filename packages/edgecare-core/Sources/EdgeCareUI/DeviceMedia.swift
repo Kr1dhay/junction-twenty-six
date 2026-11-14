@@ -11,25 +11,55 @@ import UIKit
 import PhotosUI
 #endif
 
-@MainActor final class SpeechController: ObservableObject {
+@MainActor final class SpeechController: NSObject, ObservableObject {
     @Published var listening = false
     @Published var unavailable = false
+    @Published private(set) var speaking = false
+    @Published private(set) var playbackStarted = false
     private var generation = 0
     #if os(iOS)
     private var engine: AVAudioEngine?
     private var task: SFSpeechRecognitionTask?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private let speaker = AVSpeechSynthesizer()
+    private var utteranceID: ObjectIdentifier?
+    private var ownsAudioSession = false
+    private var synthesisWatchdog: Task<Void, Never>?
     #endif
+    override init() {
+        super.init()
+        #if os(iOS)
+        speaker.delegate = self
+        #endif
+    }
     func speak(_ text: String, language: String) {
         #if os(iOS)
-        stop(); speaker.stopSpeaking(at: .immediate)
-        guard let voice = AVSpeechSynthesisVoice(language: Self.locale(language)) else { unavailable = true; return }
-        unavailable = false
+        stop()
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let prefix = String(language.lowercased().prefix(2))
+        guard let voice = AVSpeechSynthesisVoice(language: Self.locale(language)) ??
+                AVSpeechSynthesisVoice.speechVoices().first(where: { $0.language.lowercased().hasPrefix(prefix) })
+        else { unavailable = true; return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio)
+            try session.setActive(true)
+            ownsAudioSession = true
+        } catch { unavailable = true; return }
+        unavailable = false; speaking = true
         let utterance = AVSpeechUtterance(string: text)
+        utteranceID = ObjectIdentifier(utterance)
         utterance.voice = voice
         utterance.rate = 0.45
+        speaker.usesApplicationAudioSession = true
         speaker.speak(utterance)
+        let current = generation
+        synthesisWatchdog = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard let self, self.generation == current else { return }
+            // Missing/download-pending simulator voices can queue without starting.
+            self.stop(); self.unavailable = true
+        }
         #else
         unavailable = true
         #endif
@@ -84,15 +114,47 @@ import PhotosUI
     func stop() {
         generation += 1
         #if os(iOS)
-        let heldAudioSession = engine != nil || speaker.isSpeaking
+        let heldAudioSession = engine != nil || ownsAudioSession
+        synthesisWatchdog?.cancel(); synthesisWatchdog = nil; utteranceID = nil
         if let engine { engine.stop(); engine.inputNode.removeTap(onBus: 0) }
         request?.endAudio(); task?.cancel(); engine = nil; task = nil; request = nil
         speaker.stopSpeaking(at: .immediate)
+        ownsAudioSession = false
         if heldAudioSession { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         #endif
-        listening = false
+        listening = false; speaking = false; playbackStarted = false
+    }
+    #if os(iOS)
+    private func synthesisStarted(id: ObjectIdentifier) {
+        guard id == utteranceID else { return }
+        playbackStarted = true
+        synthesisWatchdog?.cancel(); synthesisWatchdog = nil
+        NSLog("EdgeCare speech: read-aloud playback started")
+    }
+    private func synthesisEnded(id: ObjectIdentifier) {
+        guard id == utteranceID else { return }
+        stop()
+        NSLog("EdgeCare speech: read-aloud playback ended")
+    }
+    #endif
+}
+
+#if os(iOS)
+extension SpeechController: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in self?.synthesisStarted(id: id) }
+    }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in self?.synthesisEnded(id: id) }
+    }
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor [weak self] in self?.synthesisEnded(id: id) }
     }
 }
+#endif
 
 func detectedLanguage(_ text: String) -> String? {
     #if canImport(NaturalLanguage)
@@ -145,17 +207,19 @@ struct EvidenceCapture: View {
             }.pickerStyle(.menu)
             HStack {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { camera = true } label: { Label(Copy.text("camera", language), systemImage: "camera") }.buttonStyle(.bordered)
+                    Button { camera = true } label: { Label(Copy.text("camera", language), systemImage: "camera") }.buttonStyle(.edgeCareSecondary)
                 }
                 PhotosPicker(selection: $selection, matching: .images) {
                     Label(Copy.text("photos", language), systemImage: "photo")
-                }.buttonStyle(.bordered)
+                }.buttonStyle(.edgeCareSecondary)
             }.disabled(busy)
             if busy { ProgressView(Copy.text("saving", language)) }
             if let message { Text(message).font(.subheadline).foregroundStyle(.secondary) }
             if isLetter || !letterText.isEmpty {
                 Text(Copy.text("ocr", language)).font(.subheadline)
-                TextEditor(text: $letterText).frame(minHeight: 130).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+                TextEditor(text: $letterText).frame(minHeight: 130).scrollContentBackground(.hidden).padding(8)
+                    .background(EdgeCareStyle.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(EdgeCareStyle.hairline))
                 Button(Copy.text("remove", language), role: .destructive) { letterText = "" }
             }
             if lesionPresent {
