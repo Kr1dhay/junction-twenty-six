@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CRMReferral } from "@edgecare/shared-types";
+import { EquityActions } from "./equity-actions";
 
 const languages: Record<string, string> = { en: "English", fi: "Finnish", so: "Somali", ar: "Arabic", ru: "Russian", ku: "Kurdish" };
 const statusLabels = { open: "Awaiting verification", spent: "Verified · used", expired: "Expired" };
@@ -65,6 +66,7 @@ export function ReferralDashboard() {
       <nav aria-label="Referral status"><button className={`nav-item ${status === "" ? "active" : ""}`} onClick={() => setStatus("")} aria-current={status === "" ? "page" : undefined}><Icon kind="grid" />All referrals<span>{referrals.length}</span></button>
         {(["open", "spent", "expired"] as const).map(value => <button key={value} className={`nav-item ${status === value ? "active" : ""}`} onClick={() => setStatus(value)} aria-current={status === value ? "page" : undefined}><i className={`status-dot ${value}`} aria-hidden="true" />{value === "open" ? "Awaiting verification" : value === "spent" ? "Verified referrals" : "Expired"}<span>{referrals.filter(record => record.status === value).length}</span></button>)}
       </nav>
+      <a className="nav-item equity-nav" href="#equity-actions"><Icon kind="grid" />Equity actions</a>
       <div className="sidebar-note"><Icon kind="shield" /><strong>Anonymous by design</strong><p>No names. No contact details. Only what is needed to continue care.</p></div>
       <div className="session"><div className="avatar" aria-hidden="true">EC</div><div><strong>Demo clinician</strong><small>Synthetic workspace</small></div></div>
     </aside>
@@ -86,6 +88,7 @@ export function ReferralDashboard() {
             <span className="row-top"><span className="referral-id">EC–{record.referral_id.slice(-8).toUpperCase()}</span><span className={`risk-badge ${record.risk_band}`}>{title(record.risk_band)} risk</span></span><strong className="specialty-title">{title(record.recommended_specialty)}</strong><span className="row-summary">{record.free_text_summary}</span><span className="row-meta"><span>{languages[record.language] ?? record.language} <span aria-hidden="true">·</span> {date(record.created_at)}</span><span className={`status-label ${record.status}`}><i aria-hidden="true" />{statusLabels[record.status]}</span></span><span className="row-chevron"><Icon kind="arrow" /></span>
           </button>)}
         </section><aside className="detail-panel" aria-label="Selected referral details">{detail ? <ReferralDetail detail={detail} /> : <div className="empty-state"><Icon kind="shield" /><h2>A private path to care</h2><p>Select a referral to review its clinical summary and verification history.</p></div>}</aside></div>
+        <EquityActions />
         <footer className="workspace-footer"><Icon kind="shield" /><span>Synthetic data only · Demo triage is unvalidated and requires clinician review.</span><span>Local demo registry · UTC</span></footer>
       </main>
     </div>
