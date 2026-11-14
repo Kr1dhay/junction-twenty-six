@@ -190,23 +190,17 @@ struct CameraCapture: UIViewControllerRepresentable {
 
 struct EvidenceCapture: View {
     let language: String
-    @Binding var letterText: String
     @Binding var lesionPresent: Bool
     @Binding var lesionImage: Data?
     @Binding var photoConsent: Bool
     @State private var selection: PhotosPickerItem?
-    @State private var isLetter = true
     @State private var camera = false
-    @State private var busy = false
     @State private var message: String?
     @State private var operation: Task<Void, Never>?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(Copy.text("optional", language)).foregroundStyle(.secondary)
-            Picker(Copy.text("evidence", language), selection: $isLetter) {
-                Text(Copy.text("letter", language)).tag(true)
-                Text(Copy.text("lesion", language)).tag(false)
-            }.pickerStyle(.menu)
+            Text(Copy.text("lesion", language)).font(.headline)
             HStack {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
                     Button { camera = true } label: { Label(Copy.text("camera", language), systemImage: "camera") }.buttonStyle(.edgeCareSecondary)
@@ -214,18 +208,8 @@ struct EvidenceCapture: View {
                 PhotosPicker(selection: $selection, matching: .images) {
                     Label(Copy.text("photos", language), systemImage: "photo")
                 }.buttonStyle(.edgeCareSecondary)
-            }.disabled(busy)
-            if busy { ProgressView(Copy.text("saving", language)) }
-            if let message { Text(message).font(.subheadline).foregroundStyle(.secondary) }
-            if isLetter || !letterText.isEmpty {
-                if !letterText.isEmpty { Text(Copy.text("ocr", language)).font(.subheadline) }
-                TextEditor(text: $letterText).frame(minHeight: 130).scrollContentBackground(.hidden).padding(8)
-                    .background(EdgeCareStyle.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(EdgeCareStyle.hairline))
-                if !letterText.isEmpty {
-                    Button(Copy.text("remove", language), role: .destructive) { letterText = "" }
-                }
             }
+            if let message { Text(message).font(.subheadline).foregroundStyle(.secondary) }
             if lesionPresent {
                 HStack(alignment: .center, spacing: 16) {
                     if let lesionImage, let preview = UIImage(data: lesionImage) {
@@ -243,36 +227,26 @@ struct EvidenceCapture: View {
                         .accessibilityIdentifier("skinPhotoConsent")
                 }
             }
-            if !isLetter || lesionPresent {
-                Text(Copy.text("vision", language)).font(.subheadline).foregroundStyle(.secondary)
-            }
+            Text(Copy.text("vision", language)).font(.subheadline).foregroundStyle(.secondary)
         }
         .sheet(isPresented: $camera) { CameraCapture { data in if let data { operation = Task { await process(data) } } }.ignoresSafeArea() }
         .onChange(of: selection) { _, item in
-            let forLetter = isLetter
             operation?.cancel()
             operation = Task {
-                if let data = try? await item?.loadTransferable(type: Data.self), !Task.isCancelled { await process(data, letter: forLetter) }
+                if let data = try? await item?.loadTransferable(type: Data.self), !Task.isCancelled { await process(data) }
                 selection = nil
             }
         }
         .onDisappear { operation?.cancel(); operation = nil }
     }
-    @MainActor private func process(_ data: Data, letter: Bool? = nil) async {
+    /// Every added image goes to the skin pipeline (CNN -> Gemini on the backend); no on-device text reading.
+    @MainActor private func process(_ data: Data) async {
         guard !data.isEmpty, data.count <= 30_000_000 else { message = Copy.text("error", language); return }
-        if letter ?? isLetter {
-            busy = true; defer { busy = false }
-            do {
-                let text = try await AppleVisionOCREngine().interpret(image: data)
-                guard !Task.isCancelled else { return }
-                if text.isEmpty { message = Copy.text("error", language) } else { letterText = String(text.prefix(6000)); message = nil }
-            } catch { message = Copy.text("error", language) }
-        } else {
-            // Downscale in memory for the risk estimate; nothing is written to disk.
-            let resized = Self.downscaledJPEG(data)
-            guard !Task.isCancelled else { return }
-            lesionImage = resized; lesionPresent = true; message = resized == nil ? Copy.text("error", language) : nil
-        }
+        // Downscale in memory for the risk estimate; nothing is written to disk.
+        let resized = Self.downscaledJPEG(data)
+        guard !Task.isCancelled else { return }
+        guard let resized else { message = Copy.text("error", language); return }
+        lesionImage = resized; lesionPresent = true; message = nil
     }
     static func downscaledJPEG(_ data: Data, maxSide: CGFloat = 1024) -> Data? {
         guard let image = UIImage(data: data) else { return nil }
@@ -285,14 +259,12 @@ struct EvidenceCapture: View {
 #else
 struct EvidenceCapture: View {
     let language: String
-    @Binding var letterText: String
     @Binding var lesionPresent: Bool
     @Binding var lesionImage: Data?
     @Binding var photoConsent: Bool
     var body: some View {
         VStack(alignment: .leading) {
             Text(Copy.text("optional", language))
-            TextEditor(text: $letterText).frame(minHeight: 130)
             Toggle(Copy.text("lesion", language), isOn: $lesionPresent)
             Text(Copy.text("vision", language)).font(.subheadline)
         }

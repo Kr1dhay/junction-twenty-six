@@ -45,7 +45,7 @@
 		</dict>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Read a letter on this device, or add a skin concern photo. With your consent, a skin photo is sent to the Edge-Care server and Google Gemini for a demo risk estimate and is not stored.</string>
+	<string>Add a skin concern photo. With your consent, a skin photo is sent to the Edge-Care server and Google Gemini for a demo risk estimate and is not stored.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to the shared Edge-Care demo backend on your local network.</string>
 	<key>NSMicrophoneUsageDescription</key>
