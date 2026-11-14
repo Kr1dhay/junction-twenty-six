@@ -1,6 +1,12 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import sys
+from unittest.mock import patch
+import contextlib
+import io
+
+sys.path.insert(0, str(Path(__file__).parents[1]))
 
 spec = importlib.util.spec_from_file_location("launcher", Path(__file__).parents[1] / "run-apple-demo.py")
 launcher = importlib.util.module_from_spec(spec)
@@ -25,6 +31,25 @@ class RuntimeSelectionTests(unittest.TestCase):
         self.assertEqual(launcher.select_device(devices, "iPad Air (5th generation)")["identifier"], "air5")
         with self.assertRaises(ValueError):
             launcher.select_device(devices, "iPad Air 11-inch (M2)")
+
+    def test_voice_setup_rejects_offline_or_external_backend(self):
+        for args in [["--mode", "local"], ["--no-backend"], ["--base-url", "https://example.com"]]:
+            with self.assertRaisesRegex(ValueError, "requires connected mode"):
+                launcher.main(["--configure-voice"] + args)
+
+    def test_voice_setup_will_not_reuse_running_backend_or_write_credentials(self):
+        inventory = {"runtimes": [dict(self.runtimes[1], isAvailable=True)],
+                     "devicetypes": [{"name": name, "identifier": role} for role, _, _, name in launcher.TARGETS]}
+        with patch.object(launcher.platform, "system", return_value="Darwin"), \
+                patch.object(launcher.shutil, "which", return_value="/tool"), \
+                patch.object(launcher, "json_command", return_value=inventory), \
+                patch.object(launcher, "health", return_value=True), \
+                patch.object(launcher, "configure") as configure, \
+                patch.object(launcher, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, "already running"):
+                launcher.main(["--configure-voice"])
+            configure.assert_not_called()
+            run.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

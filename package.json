@@ -17,6 +17,7 @@
     "ios:generate": "xcodegen generate --spec project.yml",
     "test:swift": "swift test --package-path packages/edgecare-core",
     "ios:demo": "python3 scripts/run-apple-demo.py",
+    "ios:voice": "python3 scripts/run-apple-demo.py --configure-voice",
     "test:launcher": "python3 -m unittest discover -s scripts/tests -v",
     "registry": "tsx scripts/registry.ts",
     "demo:studio": "pnpm --filter @edgecare/demo-video studio",

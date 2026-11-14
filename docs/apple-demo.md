@@ -32,7 +32,24 @@ Simulator runtime releases do not necessarily correspond to every physical-devic
 4. Builds each app for its selected simulator, installs it and launches it in connected-demo mode against `http://127.0.0.1:3000`.
 5. Writes build logs and a report of actual device/runtime combinations to `artifacts/apple-demo/TIMESTAMP/`.
 
-If you configured issuer/clinician tokens in the server environment file, also export the same `EDGECARE_ISSUER_TOKEN` and `EDGECARE_CLINICIAN_TOKEN` values in the launcher shell so they are passed into the simulators. Provider keys remain server-only.
+The launcher reads issuer/clinician tokens using Next.js's development environment-file precedence, including `apps/crm-web/.env.local`, and passes only these device credentials into the simulators. Exported shell values take precedence. Provider keys remain server-only.
+
+## Start connected voice on the Mac
+
+```sh
+git pull --ff-only
+pnpm ios:voice
+```
+
+This command validates the installed simulators, installs dependencies, privately prompts for `GEMINI_API_KEY`, `GEMINI_MODEL`, `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`, enables cloud voice, and launches the backend and all three apps in connected mode. Input is hidden; Enter preserves a configured value. Missing values stop setup before writing the file. Settings are saved to ignored `apps/crm-web/.env.local` with owner-only permissions. Credentials saved on another computer are not transferred through Git.
+
+Select a Gemini model with structured JSON support that your account can access and an ElevenLabs voice available to your key. The wizard checks configuration presence; the first consenting conversation verifies live provider access. It does not enumerate voices or send patient content during setup. Per-language voice overrides can still be set in `.env.local` as described in [voice intake](voice-intake.md).
+
+Stop any backend already listening at the selected URL first, or use `pnpm ios:voice --base-url http://127.0.0.1:3001`. Setup refuses to reuse a running backend with stale settings. Keep the launcher terminal open. For later launches with saved settings, use `pnpm ios:demo`.
+
+If the exact requested runtime is unavailable, explicitly select an installed one, for example `pnpm ios:voice --runtime latest`. This selects the newest installed runtime rather than claiming to run 27.2.1.
+
+**Running an Xcode scheme directly defaults to local/offline mode.** To run it connected from Xcode, set `EDGECARE_MODE=connected` and `EDGECARE_BASE_URL=http://127.0.0.1:3000` in Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables, while the backend is running. Set device authorization tokens there if configured. Never put provider keys in a scheme.
 
 Keep its terminal running to serve the backend. Ctrl+C stops only the backend it owns; simulators and stored referral data remain. A backend already running at the supplied URL is reused and never stopped by the launcher. `--no-backend --base-url URL` requires a reachable existing backend.
 

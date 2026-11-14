@@ -4,6 +4,8 @@ The kiosk and patient app offer two intake modes. The structured form works offl
 
 ## Enable the connected voice service
 
+On the Mac, run `pnpm ios:voice` for private credential prompts and a connected simulator launch; see the [Mac setup instructions](apple-demo.md#start-connected-voice-on-the-mac). The wizard does not transfer credentials from other machines or verify provider entitlements. Manual setup follows.
+
 In `apps/crm-web/.env.local`, configure server-side values:
 
 ```dotenv

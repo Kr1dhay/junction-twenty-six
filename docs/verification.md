@@ -4,7 +4,7 @@ Verified on the supplied Linux host with Node 22.11.0 and pnpm 9.15.9:
 
 - `pnpm typecheck`: strict TypeScript passes for the CRM, shared models, Remotion composition, devnet CLI and browser-test configuration.
 - `pnpm test`: all 21 tests pass. Coverage includes wire privacy/crypto, enrollment idempotency, persistence, concurrent SQLite spend arbitration across separate processes, winning-operation replay after restart, auth/origin guards, voice provider contracts and Anchor byte encoding.
-- `pnpm test:launcher`: four simulator-selection tests pass; missing exact runtimes/device types do not silently fall back.
+- `pnpm test:launcher`: eleven tests pass, covering exact simulator selection, private voice configuration, Next.js environment parsing, stale-backend rejection and simulator credential isolation. Missing exact runtimes/device types do not silently fall back. Provider access and actual Mac launches remain unverified.
 - `pnpm build`: production CRM/API build passes, including conversation and profile-normalization routes.
 - `pnpm schema`: generated referral schema is unchanged; Swift and TypeScript consume matching fixtures.
 - Browser integration against a production server: login, filters, live enrollment arrival, shared spend propagation, retry acceptance/competing-spend rejection, privacy projection, stale-data display during a lost connection, reconnect and logout pass. Desktop/mobile screenshots are under ignored `artifacts/browser/`. Responsive filter and tablet logout regression checks are included.

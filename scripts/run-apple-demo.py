@@ -14,6 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from voice_setup import configure, load_settings, simulator_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = (
@@ -83,6 +84,7 @@ def parse_args(argv=None):
                         help="local is network-free per device; connected shares this Mac's demo backend")
     parser.add_argument("--base-url", default="http://127.0.0.1:3000")
     parser.add_argument("--no-backend", action="store_true", help="Use an already-running backend")
+    parser.add_argument("--configure-voice", action="store_true", help="Privately configure providers and launch a fresh local connected backend")
     parser.add_argument("--skip-tests", action="store_true", help="Explicitly skip Swift package tests")
     parser.add_argument("--skip-install", action="store_true", help="Skip pnpm dependency installation")
     parser.add_argument("--dry-run", action="store_true", help="Validate simulator selection and print plan without mutation")
@@ -93,6 +95,12 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.configure_voice:
+        url = urllib.parse.urlparse(args.base_url)
+        if (args.mode != "connected" or args.no_backend or url.scheme != "http"
+                or url.hostname not in ["localhost", "127.0.0.1"] or url.path not in ["", "/"]
+                or url.username or url.query or url.fragment):
+            raise ValueError("--configure-voice requires connected mode and an owned local HTTP backend.")
     if platform.system() != "Darwin":
         raise ValueError("This launcher needs your Mac. Xcode and iOS Simulator cannot run on this Linux host.")
     for executable in ["xcodebuild", "xcrun", "swift"]:
@@ -120,6 +128,15 @@ def main(argv=None):
     for executable in ["xcodegen"] + (["node", "pnpm"] if args.mode == "connected" else []):
         if not shutil.which(executable):
             raise ValueError("Missing {}. See docs/apple-demo.md for prerequisites.".format(executable))
+    settings = {}
+    if args.configure_voice and health(args.base_url):
+        raise ValueError("A backend is already running at this URL. Stop it before configuring voice, "
+                         "or choose a free local port with --base-url http://127.0.0.1:3001. "
+                         "The launcher will not reuse stale provider settings.")
+    if args.mode == "connected":
+        if not args.skip_install:
+            run(["pnpm", "install", "--frozen-lockfile"])
+        settings = configure(ROOT) if args.configure_voice else load_settings(ROOT)
     run(["xcodebuild", "-version"])
     run(["xcodegen", "generate", "--spec", "project.yml"])
     if not args.skip_tests:
@@ -136,8 +153,6 @@ def main(argv=None):
             url = urllib.parse.urlparse(args.base_url)
             if url.hostname not in ["localhost", "127.0.0.1"] or url.scheme != "http" or url.path not in ["", "/"] or url.username:
                 raise ValueError("Auto-start only supports http://localhost:PORT or http://127.0.0.1:PORT. Use --no-backend for another server.")
-            if not args.skip_install:
-                run(["pnpm", "install", "--frozen-lockfile"])
             environment = dict(os.environ, DEMO_MODE="true", CHAIN="mock", LLM="ondevice")
             backend_log = (output / "backend.log").open("w")
             backend = subprocess.Popen(["pnpm", "--filter", "@edgecare/crm-web", "exec", "next", "dev", "--hostname", "127.0.0.1", "--port", str(url.port or 3000)],
@@ -173,10 +188,7 @@ def main(argv=None):
             if not app.is_dir():
                 raise ValueError("Built app is missing: {}".format(app))
             run(["xcrun", "simctl", "install", udid, app])
-            environment = dict(os.environ, SIMCTL_CHILD_EDGECARE_MODE=args.mode, SIMCTL_CHILD_EDGECARE_BASE_URL=args.base_url)
-            for key in ["EDGECARE_ISSUER_TOKEN", "EDGECARE_CLINICIAN_TOKEN"]:
-                if os.environ.get(key):
-                    environment["SIMCTL_CHILD_" + key] = os.environ[key]
+            environment = simulator_environment(args.mode, args.base_url, settings)
             run(["xcrun", "simctl", "launch", "--terminate-running-process", udid, item["bundle"]], env=environment)
             run(["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", udid])
             results.append({"role": item["role"], "device_type": item["device"]["name"], "udid": udid, "runtime": runtime["version"], "bundle_id": item["bundle"], "build_and_launch": "succeeded"})

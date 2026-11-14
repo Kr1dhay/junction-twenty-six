@@ -33,7 +33,7 @@ python3 scripts/run-apple-demo.py --list
 python3 scripts/run-apple-demo.py
 ```
 
-The launcher opens Xcode, runs Swift tests, builds and launches the kiosk on an **M1 iPad Air (5th generation, 10.9-inch)** simulator, the doctor app on **iPhone 15 Pro Max**, and the patient app on **iPhone 13 Pro**. It requests **iOS 27.2.1** exactly and stops with installed alternatives if unavailable. `--runtime latest` explicitly selects a substitute. See [the Mac walkthrough](docs/apple-demo.md) for setup, physical devices and logs.
+The launcher opens Xcode, runs Swift tests, builds and launches the kiosk on an **M1 iPad Air (5th generation, 10.9-inch)** simulator, the doctor app on **iPhone 15 Pro Max**, and the patient app on **iPhone 13 Pro**. It requests **iOS 27.2.1** exactly and stops with installed alternatives if unavailable. `--runtime latest` explicitly selects a substitute. For private provider setup and a connected voice launch, run `pnpm ios:voice` on the Mac. See [the Mac walkthrough](docs/apple-demo.md) for setup, physical devices and logs.
 
 Connected mode shares the local backend across devices. `--mode local` makes no network calls and gives each device an independent persistent store. Offline connected enrollments and spends queue durably; an offline spend remains provisional until the shared registry accepts it.
 
@@ -47,7 +47,7 @@ Voice requires explicit consent, connectivity and server-side ElevenLabs/Gemini 
 
 ```sh
 pnpm check                 # strict types and protocol/API tests
-pnpm test:launcher         # simulator-selection tests
+pnpm test:launcher         # simulator selection and private voice setup tests
 pnpm build                 # production CRM build
 pnpm test:browser          # browser/API integration; run build first
 pnpm test:swift            # macOS: shared Swift lifecycle tests
