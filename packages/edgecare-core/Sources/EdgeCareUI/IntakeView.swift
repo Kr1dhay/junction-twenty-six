@@ -41,7 +41,7 @@ import EdgeCareCore
             guard generation == currentGeneration else { return }
             guidance = result; step = 5
         }
-        catch { if generation == currentGeneration { error = Copy.text("error", language) } }
+        catch { if generation == currentGeneration { self.error = Copy.text("error", language) } }
     }
     public func enroll(using app: AppSession) async {
         guard let session = app.session, let guidance else { error = Copy.text("error", language); return }
