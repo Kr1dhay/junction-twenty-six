@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { toCRMReferral, type ChainClient, type CommitmentAccount, type ReferralRecord, type ReferralRepository } from "@edgecare/shared-types";
+import { toCRMConsultation, toCRMReferral, type ChainClient, type ConsultationRecord, type CommitmentAccount, type ReferralRecord, type ReferralRepository } from "@edgecare/shared-types";
 import { preservesReferralIdentity } from "./referral-update";
 
 export class ConflictError extends Error {}
@@ -17,7 +17,9 @@ export class DemoRepository implements ReferralRepository, ChainClient {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("busy_timeout = 5000");
     this.db.exec(`CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL, spent INTEGER NOT NULL DEFAULT 0, created_slot INTEGER NOT NULL, spent_slot INTEGER, spent_at TEXT, operation_id TEXT);`);
+      CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL, spent INTEGER NOT NULL DEFAULT 0, created_slot INTEGER NOT NULL, spent_slot INTEGER, spent_at TEXT, operation_id TEXT);
+      CREATE TABLE IF NOT EXISTS consultations (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, started_at TEXT NOT NULL, payload TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS consultations_referral ON consultations (referral_id, started_at);`);
     const columns = this.db.prepare("PRAGMA table_info(commitments)").all() as { name: string }[];
     if (!columns.some(column => column.name === "operation_id")) this.db.exec("ALTER TABLE commitments ADD COLUMN operation_id TEXT");
   }
@@ -104,5 +106,22 @@ export class DemoRepository implements ReferralRepository, ChainClient {
   list() {
     const rows = this.db.prepare("SELECT id FROM referrals ORDER BY json_extract(payload, '$.created_at') DESC, id").all() as { id: string }[];
     return rows.map(row => this.get(row.id)!);
+  }
+  /** Append-only and idempotent on consultation_id; the referral's own triage is never modified. */
+  createConsultation(record: ConsultationRecord): { created: boolean } {
+    return this.db.transaction(() => {
+      if (!this.verificationEnvelope(record.referral_id)) throw new MissingError("Referral not found");
+      const row = this.db.prepare("SELECT payload FROM consultations WHERE id = ?").get(record.consultation_id) as { payload: string } | undefined;
+      if (row) {
+        if (!isDeepStrictEqual(JSON.parse(row.payload), record)) throw new ConflictError("Consultation already exists with different content");
+        return { created: false };
+      }
+      this.db.prepare("INSERT INTO consultations (id, referral_id, started_at, payload) VALUES (?, ?, ?, ?)").run(record.consultation_id, record.referral_id, record.started_at, JSON.stringify(record));
+      return { created: true };
+    }).immediate();
+  }
+  listConsultations(referralID: string) {
+    const rows = this.db.prepare("SELECT payload FROM consultations WHERE referral_id = ? ORDER BY started_at DESC, id").all(referralID) as { payload: string }[];
+    return rows.map(row => toCRMConsultation(JSON.parse(row.payload) as ConsultationRecord));
   }
 }

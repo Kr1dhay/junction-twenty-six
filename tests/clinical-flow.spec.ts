@@ -94,3 +94,26 @@ test("automatic CRM entry can retry a failed session request without a code", as
   await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
   expect(attempts).toBe(2);
 });
+
+test("a confirmed consultation appears on the referral with structured notes and both confirmations", async ({ page, request }) => {
+  const record = enrollment();
+  expect((await request.put(`/demo/commitments/${record.referral_id}`, { data: { commitment_hash: record.commitment_hash } })).ok()).toBeTruthy();
+  expect((await request.post("/referrals", { data: record })).status()).toBe(201);
+  const consultation = { ...JSON.parse(readFileSync("packages/shared-types/fixtures/consultation.json", "utf8")), consultation_id: randomUUID(), referral_id: record.referral_id };
+  const unconfirmed = { ...consultation, confirmation: { disputed_items: [], doctor_confirmed_at: consultation.confirmation.doctor_confirmed_at } };
+  expect((await request.post(`/referrals/${record.referral_id}/consultations`, { data: unconfirmed })).status()).toBe(400);
+  expect((await request.post(`/referrals/${record.referral_id}/consultations`, { data: consultation })).status()).toBe(201);
+  await page.goto("/");
+  await page.getByRole("searchbox", { name: "Search referrals" }).fill(record.referral_id);
+  await expect(page.locator(".detail-id code")).toHaveText(record.referral_id);
+  const card = page.locator(".consultation-card");
+  await expect(card).toHaveCount(1);
+  await expect(card.locator(".confirmed-badge")).toContainText("Confirmed by patient");
+  await expect(card.locator(".structured-fields")).toContainText("Changing dark skin mark on the left forearm");
+  await expect(card.locator(".structured-fields")).toContainText("Dermatology");
+  await card.getByText("Interpreted transcript").click();
+  await expect(card.locator(".transcript li")).toHaveCount(2);
+  // Clinician question is shown with its Somali translation; the patient's original Somali follows.
+  await expect(card.locator('.transcript p[lang="so"]')).toHaveText(["Muddo intee le'eg ayaad calaamaddan qabtay?", "Qiyaastii laba bilood."]);
+  await expect(card.locator(".transcript li").nth(1).locator(".translation")).toHaveText("About two months.");
+});

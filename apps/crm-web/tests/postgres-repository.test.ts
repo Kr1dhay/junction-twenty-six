@@ -72,3 +72,23 @@ test("hosted Postgres survives new instances and serializes enrollment, registry
     } finally { await pool.end(); }
   }
 });
+
+test("hosted Postgres stores consultations append-only and idempotently", { skip: !url }, async () => {
+  const fixture = JSON.parse((await import("node:fs")).readFileSync("packages/shared-types/fixtures/consultation.json", "utf8"));
+  const referral = { ...demoReferrals[0]!, referral_id: randomUUID() };
+  const consultation = { ...fixture, consultation_id: randomUUID(), referral_id: referral.referral_id };
+  const a = new PostgresRepository(url!), b = new PostgresRepository(url!);
+  try {
+    await a.create(referral);
+    const results = await Promise.all([a.createConsultation(consultation), b.createConsultation(consultation)]);
+    assert.deepEqual(results.map(r => r.created).sort(), [false, true]);
+    await assert.rejects(a.createConsultation({ ...consultation, meeting_notes: "changed" }), /different content/);
+    await assert.rejects(a.createConsultation({ ...consultation, consultation_id: randomUUID(), referral_id: randomUUID() }), /not found/);
+    assert.deepEqual((await b.listConsultations(referral.referral_id)).map(c => c.consultation_id), [consultation.consultation_id]);
+  } finally {
+    const pool = new Pool({ connectionString: url! });
+    await pool.query("DELETE FROM edgecare_demo_consultations WHERE referral_id = $1", [referral.referral_id]);
+    await pool.query("DELETE FROM edgecare_demo_referrals WHERE id = $1", [referral.referral_id]);
+    await pool.end();
+  }
+});

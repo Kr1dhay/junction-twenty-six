@@ -1,0 +1,31 @@
+{
+  "consultation_id": "00000000-0000-4000-8000-0000000000c1",
+  "referral_id": "00000000-0000-4000-8000-000000000001",
+  "started_at": "2026-11-14T10:00:00.000Z",
+  "ended_at": "2026-11-14T10:12:00.000Z",
+  "doctor_language": "en",
+  "patient_language": "so",
+  "structured": {
+    "presenting_complaint": "Changing dark skin mark on the left forearm",
+    "symptoms": ["Skin mark growing", "Occasional itching"],
+    "duration": "About two months",
+    "relevant_history": "No previous skin problems reported",
+    "examination_findings": "Clinician noted an irregular border",
+    "clinician_assessment": "Clinician wants a dermatology review",
+    "plan": "Refer to dermatology",
+    "follow_up": "Return if the mark bleeds",
+    "medications_mentioned": [],
+    "safety_concerns": [],
+    "recommended_specialty": "dermatology"
+  },
+  "clinical_summary": "Synthetic demo: changing skin mark for two months; referred to dermatology.",
+  "patient_language_summary": "Tijaabo: calaamad maqaarka ah oo isbeddeleysa muddo laba bilood ah; waxaa laguu gudbinayaa dhakhtarka maqaarka.",
+  "meeting_notes": "Patient was calm and asked about waiting times.",
+  "meeting_notes_patient_language": "Bukaanku wuu degganaa wuxuuna weydiiyay waqtiga sugitaanka.",
+  "transcript": [
+    { "seq": 0, "speaker": "doctor", "source_language": "en", "target_language": "so", "original_text": "How long have you had this mark?", "translated_text": "Muddo intee le'eg ayaad calaamaddan qabtay?", "speaker_overridden": false, "flagged": false, "correction": null },
+    { "seq": 1, "speaker": "patient", "source_language": "so", "target_language": "en", "original_text": "Qiyaastii laba bilood.", "translated_text": "About two months.", "speaker_overridden": false, "flagged": false, "correction": null }
+  ],
+  "recording": { "provider": "gemini-live", "model": "gemini-3.8-live", "transcript_available": true, "discrepancies": [] },
+  "confirmation": { "patient_confirmed_at": "2026-11-14T10:14:00.000Z", "doctor_confirmed_at": "2026-11-14T10:14:10.000Z", "disputed_items": [] }
+}
