@@ -1,5 +1,17 @@
 # Implementation decisions
 
+## Optional voice-pattern research
+
+The separate opt-in voice task is research-only and disabled unless an
+authorized model is configured, except for an explicitly acknowledged,
+loopback-only conceptual hackathon demo of the pinned benchmark artifact. It
+cannot diagnose or rule out cancer and never changes clinical urgency. The
+numeric model export is retained in the private repository at the owner's
+request. See the
+[model review and deployment boundaries](research/voice-assessment.md).
+
+## Earlier implementation decisions
+
 1. The existing `junction-twenty-six` repository is the monorepo root. Next.js hosts the CRM and REST API; SQLite is the persistent demo store. No deployment or account provisioning has been performed.
 2. Swift 6/iOS 17 XcodeGen targets share `EdgeCareCore` and `EdgeCareUI`. The three app entry points select role and configuration; shared workflows are implemented once.
 3. The user’s later runtime-voice request overrides the original brief’s “ElevenLabs is for the demo video only” requirement. Connected conversational voice now uses ElevenLabs recognition and synthesis with a server-side conversational profile adapter. Explicit consent gates external processing; the complete structured form remains offline.

@@ -146,6 +146,17 @@ public actor NativeSession {
         guard let voiceClient else { throw CoreError.providerUnavailable }
         return try await voiceClient.engine()
     }
+    public func voiceResearchAvailability() async throws -> VoiceResearchAvailability {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.voiceResearchAvailability()
+    }
+    public func assessResearchVoice(audio: Data, consent: Bool) async throws -> VoiceResearchAssessment {
+        guard consent else { throw CoreError.consentRequired }
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.assessResearchVoice(audio: audio, consent: consent)
+    }
     public func liveVoiceSession(language: String?, profile: ClinicalProfile, history: [VoiceConversationTurn], consent: Bool) async throws -> GeminiLiveCredentials {
         guard configuration.allowsNetwork, online else { throw CoreError.offline }
         guard consent else { throw CoreError.consentRequired }
