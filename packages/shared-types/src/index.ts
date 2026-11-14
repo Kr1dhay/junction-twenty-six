@@ -190,7 +190,7 @@ export const consultationSessionRequestSchema = z.object({
   referral_id: z.string().uuid(),
   doctor_language: languageCode,
   patient_language: languageCode,
-}).strict().refine(value => value.doctor_language !== value.patient_language, "Languages must differ");
+}).strict();
 export interface ConsultationSessionResponse {
   scribe: { token: string; model: string; url: string };
   /** Null when Gemini Live is not configured; the session records the translation transcript only. */

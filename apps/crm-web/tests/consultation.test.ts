@@ -112,7 +112,8 @@ test("consultation routes require clinician access, both confirmations, a known 
   assert.deepEqual(listed.consultations[0].structured, fixture.structured);
   // Provider routes: consent required, disabled cloud returns 503 without contacting providers.
   assert.equal((await sessionRoute(request("/demo/consultations/session", "POST", { ...sessionInput, consent: false }))).status, 400);
-  assert.equal((await sessionRoute(request("/demo/consultations/session", "POST", { ...sessionInput, patient_language: "en" }))).status, 400);
+  // Same-language visits are valid (speaker is set by the clinician's toggle); here cloud is disabled.
+  assert.equal((await sessionRoute(request("/demo/consultations/session", "POST", { ...sessionInput, patient_language: "en" }))).status, 503);
   assert.equal((await sessionRoute(request("/demo/consultations/session", "POST", sessionInput))).status, 503);
   assert.equal((await translateRoute(request("/demo/consultations/translate", "POST", { consent: true, text: "hi", source_language: "en", target_language: "so", speaker: "doctor" }))).status, 503);
   assert.equal((await translateRoute(request("/demo/consultations/translate", "POST", { consent: true, text: "hi", source_language: "en", target_language: "so", speaker: "doctor" }, browser))).status, 401);

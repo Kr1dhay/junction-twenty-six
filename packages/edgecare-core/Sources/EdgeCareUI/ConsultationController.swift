@@ -32,6 +32,10 @@ struct UnclearUtterance: Identifiable, Equatable {
     var error: String?
     private(set) var regenerating = false
     private(set) var speaking = false
+    /// Same-language visits cannot attribute speech by language, so the clinician sets who is talking.
+    private(set) var activeSpeaker: ConsultationSpeaker = .patient
+    /// Speech in progress when the toggle flips still belongs to the previous speaker.
+    private var pendingCommitSpeaker: ConsultationSpeaker?
 
     private let consultationID = UUID().uuidString.lowercased()
     private var startedAt: Date?
@@ -56,6 +60,7 @@ struct UnclearUtterance: Identifiable, Equatable {
         audio.onInterrupted = { [weak self] in self?.pause() }
     }
 
+    var sameLanguage: Bool { SpeakerResolver.normalize(doctorLanguage) == SpeakerResolver.normalize(patientLanguage) }
     var isActive: Bool { [.connecting, .live, .paused, .drafting, .review, .submitting].contains(phase) }
     var canEnd: Bool { !segments.isEmpty && (phase == .live || phase == .paused) }
 
@@ -63,7 +68,6 @@ struct UnclearUtterance: Identifiable, Equatable {
 
     func begin() async {
         guard phase == .consent || phase == .paused || phase == .review else { return }
-        guard doctorLanguage != patientLanguage else { error = "Choose two different languages."; return }
         resolver = SpeakerResolver(doctorLanguage: doctorLanguage, patientLanguage: patientLanguage)
         error = nil; phase = .connecting
         do {
@@ -135,6 +139,12 @@ struct UnclearUtterance: Identifiable, Equatable {
         case .partial(let text, _): partial = text
         case .committed(let text, let language):
             partial = ""
+            if sameLanguage {
+                let speaker = pendingCommitSpeaker ?? activeSpeaker
+                pendingCommitSpeaker = nil
+                append(text: text, speaker: speaker, source: patientLanguage, target: patientLanguage, overridden: false)
+                return
+            }
             switch resolver.resolve(languageCode: language) {
             case .resolved(let speaker, let source, let target): append(text: text, speaker: speaker, source: source, target: target, overridden: false)
             case .unclear: unclear.append(UnclearUtterance(text: text, language: language))
@@ -171,7 +181,19 @@ struct UnclearUtterance: Identifiable, Equatable {
         let segment = ConsultationSegment(seq: nextSeq, speaker: speaker, sourceLanguage: source, targetLanguage: target, originalText: text, speakerOverridden: overridden)
         nextSeq += 1
         segments.append(segment)
+        // Same language: the words are the record; nothing to translate or speak.
+        if source == target { segments[segments.count - 1].translatedText = text; return }
         Task { await translate(seq: segment.seq) }
+    }
+
+    /// Hands the floor to a participant (same-language visits only).
+    func setSpeaker(_ speaker: ConsultationSpeaker) {
+        guard sameLanguage, speaker != activeSpeaker else { return }
+        if !partial.isEmpty {
+            pendingCommitSpeaker = activeSpeaker
+            Task { await scribe.commit() }
+        }
+        activeSpeaker = speaker
     }
     private func translate(seq: Int, speak: Bool = true) async {
         guard let index = segments.firstIndex(where: { $0.seq == seq }) else { return }
@@ -189,6 +211,9 @@ struct UnclearUtterance: Identifiable, Equatable {
     func swapSpeaker(seq: Int) {
         guard let index = segments.firstIndex(where: { $0.seq == seq }) else { return }
         let next: ConsultationSpeaker = segments[index].speaker == .doctor ? .patient : .doctor
+        if sameLanguage {
+            segments[index].speaker = next; segments[index].speakerOverridden = true; return
+        }
         guard case .resolved(let speaker, let source, let target) = resolver.direction(for: next) else { return }
         segments[index].speaker = speaker; segments[index].sourceLanguage = source; segments[index].targetLanguage = target
         segments[index].translatedText = ""; segments[index].speakerOverridden = true

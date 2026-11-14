@@ -88,8 +88,11 @@ public actor RealtimeScribeClient {
             URLQueryItem(name: "include_timestamps", value: "true"),
             URLQueryItem(name: "include_language_detection", value: "true"),
             URLQueryItem(name: "language_code", value: SpeakerResolver.normalize(doctorLanguage)),
-            URLQueryItem(name: "secondary_languages", value: SpeakerResolver.normalize(patientLanguage)),
         ]
+        // A same-language visit has nothing to tell apart; only a second language is a hint.
+        if SpeakerResolver.normalize(patientLanguage) != SpeakerResolver.normalize(doctorLanguage) {
+            components.queryItems?.append(URLQueryItem(name: "secondary_languages", value: SpeakerResolver.normalize(patientLanguage)))
+        }
         guard let url = components.url else { throw CoreError.invalidConfiguration }
         return url
     }

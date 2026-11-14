@@ -64,7 +64,9 @@ struct ConsultationView: View {
                 Picker("Patient speaks", selection: $controller.patientLanguage) {
                     ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
                 }
-                Text("The speaker is detected from the language spoken. You can correct it on any sentence.").font(.footnote).foregroundStyle(.secondary)
+                Text(controller.sameLanguage
+                     ? "Same language: no translation. During the visit, tap who is speaking. You can correct it on any sentence."
+                     : "The speaker is detected from the language spoken. You can correct it on any sentence.").font(.footnote).foregroundStyle(.secondary)
             }
             Section(p("consultTitle")) {
                 Text(p("consultConsent")).environment(\.layoutDirection, patientDirection)
@@ -76,7 +78,6 @@ struct ConsultationView: View {
                 Button { Task { await controller.begin() } } label: {
                     Label("\(p("consultAgree")) · Start", systemImage: "waveform.and.mic")
                 }.buttonStyle(.borderedProminent).frame(minHeight: 48)
-                    .disabled(controller.doctorLanguage == controller.patientLanguage)
                 Text("Only start after the patient agrees. Audio is streamed for translation and never stored.").font(.footnote).foregroundStyle(.secondary)
                 if let error = controller.error { Text(error).foregroundStyle(.red) }
             }
@@ -122,6 +123,11 @@ struct ConsultationView: View {
                     }
                 }
             }
+            if controller.sameLanguage {
+                SpeakerToggle(active: controller.activeSpeaker) { controller.setSpeaker($0) }
+                    .padding(.horizontal).padding(.top, 12)
+                    .frame(maxWidth: .infinity).background(.bar)
+            }
             HStack(spacing: 12) {
                 if controller.phase == .paused {
                     Button { Task { await controller.resume() } } label: { Label("Resume", systemImage: "play.fill").frame(maxWidth: .infinity) }
@@ -143,17 +149,23 @@ struct ConsultationView: View {
             HStack {
                 Text(segment.speaker == .doctor ? "CLINICIAN" : "PATIENT").font(.caption.weight(.bold))
                     .foregroundStyle(segment.speaker == .doctor ? EdgeCareStyle.mulberry : EdgeCareStyle.magenta)
-                Text("\(segment.sourceLanguage.uppercased()) → \(segment.targetLanguage.uppercased())").font(.caption2).foregroundStyle(.secondary)
+                if segment.sourceLanguage != segment.targetLanguage {
+                    Text("\(segment.sourceLanguage.uppercased()) → \(segment.targetLanguage.uppercased())").font(.caption2).foregroundStyle(.secondary)
+                }
                 if segment.speakerOverridden { Text("speaker corrected").font(.caption2).foregroundStyle(.orange) }
                 Spacer()
                 Menu {
-                    Button("Swap speaker and re-translate") { controller.swapSpeaker(seq: segment.seq) }
-                    Button("Play translation again") { controller.replay(seq: segment.seq) }.disabled(segment.translatedText.isEmpty)
+                    if segment.sourceLanguage == segment.targetLanguage {
+                        Button("Swap speaker") { controller.swapSpeaker(seq: segment.seq) }
+                    } else {
+                        Button("Swap speaker and re-translate") { controller.swapSpeaker(seq: segment.seq) }
+                        Button("Play translation again") { controller.replay(seq: segment.seq) }.disabled(segment.translatedText.isEmpty)
+                    }
                 } label: { Image(systemName: "ellipsis.circle").accessibilityLabel("Sentence options") }
             }
             Text(segment.originalText).environment(\.layoutDirection, segment.sourceLanguage.hasPrefix("ar") ? .rightToLeft : .leftToRight)
             if controller.translating.contains(segment.seq) { ProgressView().controlSize(.small) }
-            else if !segment.translatedText.isEmpty {
+            else if !segment.translatedText.isEmpty, segment.sourceLanguage != segment.targetLanguage {
                 Text(segment.translatedText).fontWeight(.medium)
                     .environment(\.layoutDirection, segment.targetLanguage.hasPrefix("ar") ? .rightToLeft : .leftToRight)
             }
@@ -331,13 +343,54 @@ private struct TranscriptReviewRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(segment.speaker == .doctor ? "CLINICIAN" : "PATIENT").font(.caption.weight(.bold)).foregroundStyle(.secondary)
             Text(segment.originalText)
-            Text(segment.translatedText.isEmpty ? "No translation" : segment.translatedText).foregroundStyle(.secondary)
-            Toggle("Mistranslated", isOn: Binding(get: { segment.flagged }, set: { onChange($0, $0 ? correction : nil) }))
+            if segment.sourceLanguage != segment.targetLanguage {
+                Text(segment.translatedText.isEmpty ? "No translation" : segment.translatedText).foregroundStyle(.secondary)
+            }
+            Toggle(segment.sourceLanguage == segment.targetLanguage ? "Transcribed incorrectly" : "Mistranslated", isOn: Binding(get: { segment.flagged }, set: { onChange($0, $0 ? correction : nil) }))
             if segment.flagged {
                 TextField("Correct meaning", text: $correction, axis: .vertical)
                     .onSubmit { onChange(true, correction) }
                 Button("Save correction") { onChange(true, correction) }.font(.caption).disabled(correction.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }.padding(.vertical, 4)
+    }
+}
+
+/// Two-position "who is speaking" switch for same-language visits. One tap hands the floor over.
+private struct SpeakerToggle: View {
+    let active: ConsultationSpeaker
+    let select: (ConsultationSpeaker) -> Void
+    @Namespace private var thumb
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text("Now speaking").font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+            HStack(spacing: 0) {
+                side(.patient, "Patient", "person.fill")
+                side(.doctor, "Clinician", "stethoscope")
+            }
+            .padding(4)
+            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+            .sensoryFeedback(.selection, trigger: active)
+        }
+    }
+
+    private func side(_ speaker: ConsultationSpeaker, _ title: String, _ icon: String) -> some View {
+        let on = active == speaker
+        let tint = speaker == .doctor ? EdgeCareStyle.mulberry : EdgeCareStyle.magenta
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { select(speaker) }
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background {
+                    if on { Capsule().fill(tint).matchedGeometryEffect(id: "thumb", in: thumb) }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
