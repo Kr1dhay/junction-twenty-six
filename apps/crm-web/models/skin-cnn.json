@@ -1,0 +1,44 @@
+{
+  "model": "skin-cnn.fp32.onnx",
+  "architecture": "torchvision mobilenet_v3_small (ImageNet-1K pretrained), 7-class head, fp32",
+  "dataset": "HAM10000 via huggingface.co/datasets/marmal88/skin_cancer (CC BY-NC 4.0)",
+  "labels": [
+    "akiec",
+    "bcc",
+    "bkl",
+    "df",
+    "mel",
+    "nv",
+    "vasc"
+  ],
+  "malignant_labels": [
+    "mel",
+    "bcc",
+    "akiec"
+  ],
+  "input": {
+    "name": "input",
+    "size": 224,
+    "layout": "NCHW",
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "output": "logits",
+  "metrics": {
+    "test_accuracy": 0.8825,
+    "test_balanced_accuracy": 0.8786,
+    "int8_fp32_agreement": 0.5743,
+    "test_images": 1285,
+    "size_bytes": 6109747
+  },
+  "trained": "2026-11-15",
+  "warning": "Research demo only. Trained on dermoscopy images; unreliable on phone photos. Not a diagnosis."
+}

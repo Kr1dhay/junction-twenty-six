@@ -108,10 +108,13 @@ export interface StructuredCall<T> {
   temperature?: number;
   unavailableMessage?: string;
   invalidMessage?: string;
+  /** Gemini only: images sent as inline parts after the text context. */
+  images?: { mimeType: string; base64: string }[];
 }
 /** One structured JSON call through Gemini or Runware Gemini; output is always schema-validated. */
 export async function structuredLLM<T>(config: VoiceConfig, request: Requester, call: StructuredCall<T>): Promise<T> {
   const runware = config.provider === "runware";
+  if (runware && call.images?.length) throw new VoiceError("Image input requires the Gemini provider.", 503);
   // Runware documents OpenAI-compatible Chat Completions with AIR model IDs.
   // Force a named function so reasoning/free text cannot be mistaken for structured data.
   // https://runware.ai/docs/tools/compatible-apis
@@ -123,7 +126,7 @@ export async function structuredLLM<T>(config: VoiceConfig, request: Requester, 
     method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiKey! },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: call.systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: call.context }] }],
+      contents: [{ role: "user", parts: [{ text: call.context }, ...(call.images ?? []).map(image => ({ inlineData: { mimeType: image.mimeType, data: image.base64 } }))] }],
       generationConfig: { responseMimeType: "application/json", responseJsonSchema: call.jsonSchema, temperature },
     }),
   });

@@ -31,3 +31,6 @@ services/voice-research/models/*
 !services/voice-research/models/paterson-mfcc-lr.json
 !services/voice-research/models/manifest.json
 !services/voice-research/models/README.md
+
+# Local Python env for scripts/skin-cnn
+.venv-skin/
