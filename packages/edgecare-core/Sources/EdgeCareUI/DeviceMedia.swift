@@ -144,17 +144,19 @@ struct EvidenceCapture: View {
             }.pickerStyle(.menu)
             HStack {
                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { camera = true } label: { Label(Copy.text("camera", language), systemImage: "camera") }.buttonStyle(.bordered)
+                    Button { camera = true } label: { Label(Copy.text("camera", language), systemImage: "camera") }.buttonStyle(.edgeCareSecondary)
                 }
                 PhotosPicker(selection: $selection, matching: .images) {
                     Label(Copy.text("photos", language), systemImage: "photo")
-                }.buttonStyle(.bordered)
+                }.buttonStyle(.edgeCareSecondary)
             }.disabled(busy)
             if busy { ProgressView(Copy.text("saving", language)) }
             if let message { Text(message).font(.subheadline).foregroundStyle(.secondary) }
             if isLetter || !letterText.isEmpty {
                 Text(Copy.text("ocr", language)).font(.subheadline)
-                TextEditor(text: $letterText).frame(minHeight: 130).overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary))
+                TextEditor(text: $letterText).frame(minHeight: 130).scrollContentBackground(.hidden).padding(8)
+                    .background(EdgeCareStyle.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(EdgeCareStyle.hairline))
                 Button(Copy.text("remove", language), role: .destructive) { letterText = "" }
             }
             if lesionPresent {

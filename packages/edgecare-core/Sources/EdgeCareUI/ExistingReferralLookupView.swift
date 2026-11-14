@@ -16,11 +16,11 @@ struct ExistingReferralLookupView: View {
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(t("updateExisting")).font(.largeTitle.weight(.semibold))
+            Text(t("updateExisting")).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
             Text(t("verifyToUpdate"))
             PINField(title: t("enterPin"), value: $passcode).disabled(busy)
             SignaturePad(strokes: $strokes, language: model.language).id(generation).disabled(busy)
-            Button(t("findExisting")) { find() }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry)
+            Button(t("findExisting")) { find() }.buttonStyle(.edgeCarePrimary)
                 .disabled(busy || app.session == nil || passcode.count != 4 || strokes.flatMap { $0 }.count < 4)
             if busy { ProgressView(t("saving")) }
             if let errorKey { Text(t(errorKey)).foregroundStyle(.secondary) }
@@ -31,11 +31,11 @@ struct ExistingReferralLookupView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(candidate.original.id).font(.caption.monospaced())
                             Text(candidate.clinicalProfile.clinicianSummary).lineLimit(3)
-                        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                    }.buttonStyle(.bordered)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.buttonStyle(.edgeCareRow)
                 }
             }
-            Button(t("cancel")) { cancel(); model.reset() }.frame(minHeight: 48)
+            Button(t("cancel")) { cancel(); model.reset() }.buttonStyle(.edgeCareSecondary)
         }
         .onChange(of: passcode) { _, value in lastActivity = Date(); model.lastActivity = Date(); if !value.isEmpty { candidates = [] } }
         .onChange(of: strokes) { _, value in lastActivity = Date(); model.lastActivity = Date(); if !value.isEmpty { candidates = [] } }

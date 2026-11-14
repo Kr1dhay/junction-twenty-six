@@ -224,16 +224,17 @@ public struct IntakeView: View {
                 if model.step > 0 {
                     HStack {
                         if model.step < 7 && model.step > 1 {
-                            Button(t("back")) { speech.stop(); model.goBack() }.buttonStyle(.bordered).frame(minHeight: 48).disabled(model.busy)
+                            Button(t("back")) { speech.stop(); model.goBack() }.buttonStyle(.edgeCareSecondary).disabled(model.busy)
                         }
                         Spacer()
-                        Button(t("end"), role: .destructive) { reset() }.frame(minHeight: 48)
+                        Button(t("end"), role: .destructive) { reset() }.buttonStyle(.edgeCareSecondary)
                     }
                 }
                 if kiosk { Text(t(idleSoon ? "idleSoon" : "idle")).font(.footnote).foregroundStyle(idleSoon ? .primary : .secondary) }
-            }.padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
+            }
+            .padding(24).frame(maxWidth: kiosk && model.step == 0 ? 980 : 720).frame(maxWidth: .infinity)
         }
-        .background(.background)
+        .background(EdgeCareBackground())
         .navigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -264,6 +265,7 @@ public struct IntakeView: View {
             if phase == .background { if kiosk { reset() } else { speech.stop(); model.passcode = ""; model.confirmation = "" } }
         }
         .toolbar {
+            ToolbarItem(placement: .principal) { EdgeCareWordmark(size: 18) }
             ToolbarItem {
                 Menu(t("demoControls")) {
                     if app.connected { Toggle(t("simulateOffline"), isOn: $app.simulateOffline) }
@@ -281,21 +283,21 @@ public struct IntakeView: View {
         case -1:
             ExistingReferralLookupView(model: model, app: app)
         case 0:
-            Image(systemName: "hand.raised.heart").font(.system(size: 48)).foregroundStyle(EdgeCareStyle.mulberry).accessibilityHidden(true)
-            heading(t("welcome"))
-            Text(t("anonymous")).font(.title3.weight(.semibold))
-            Text(t("privacy")).foregroundStyle(.secondary)
-            primary(t(kiosk ? "createNew" : "start")) { model.step = 1 }
             if kiosk {
-                Button(t("updateExisting")) { model.step = -1 }.buttonStyle(.bordered).frame(minHeight: 48)
-                Button(t("bookAppointment")) { model.step = 8 }.buttonStyle(.bordered).frame(minHeight: 48)
+                HStack(alignment: .center, spacing: 40) {
+                    EdiView(pose: .welcome).frame(maxWidth: 320, maxHeight: 340)
+                    welcomeIntro
+                }
+            } else {
+                EdiView(pose: .welcome).frame(width: 140, height: 142)
+                welcomeIntro
             }
         case 1:
             if let editing = model.editingReferral {
                 Label(t("updatingExisting"), systemImage: "pencil.circle").font(.headline)
                 Text(editing.original.id).font(.caption.monospaced()).textSelection(.enabled)
             }
-            heading(t("concernTitle"))
+            guideHeading(t("concernTitle"), pose: .listening)
             Text(t("anonymous")).foregroundStyle(.secondary)
             Picker(t("inputMode"), selection: $model.inputMode) {
                 Text(t("form")).tag("form")
@@ -326,7 +328,7 @@ public struct IntakeView: View {
             EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent)
             primary(t("next")) { Task { await model.continueFlow() } }.disabled(model.busy)
         case 5:
-            heading(t("guidance"))
+            guideHeading(t("guidance"), pose: .nextStep)
             if let guidance = model.guidance {
                 Text(guidance.message).font(.title3)
                 Text(t("review")).font(.subheadline).foregroundStyle(.secondary)
@@ -362,11 +364,11 @@ public struct IntakeView: View {
                     Text(t("demoDetail")).font(.caption)
                     Button(t("demoUse")) {
                         model.strokes = DemoData.signatureStrokes(); model.passcode = "1234"; model.confirmation = "1234"
-                    }.frame(minHeight: 48)
+                    }.buttonStyle(.edgeCareSecondary)
                 }.font(.footnote)
             }
         case 7:
-            heading(t(model.didUpdateReferral ? "recordUpdated" : "ready"))
+            guideHeading(t(model.didUpdateReferral ? "recordUpdated" : "ready"), pose: .nextStep)
             if let record = model.record {
                 ReferralHandoff(record: record, language: model.language)
                 let walletState = app.wallet.first(where: { $0.id == record.id })?.state
@@ -384,10 +386,40 @@ public struct IntakeView: View {
         default: EmptyView()
         }
     }
-    private func heading(_ text: String) -> some View { Text(text).font(.largeTitle.weight(.semibold)).foregroundStyle(EdgeCareStyle.mulberry).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
+    private func heading(_ text: String) -> some View { Text(text).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
+    /// Heading with Edi beside it, as on the patient intake study.
+    private func guideHeading(_ text: String, pose: EdiView.Pose) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            EdiView(pose: pose).frame(width: 64, height: 66)
+            heading(text)
+        }
+    }
     private func primary(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
-            .buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).disabled(model.busy)
+        Button(action: action) { Text(title) }
+            .buttonStyle(.edgeCarePrimary).disabled(model.busy)
+    }
+    private var welcomeIntro: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            heading(t("welcome"))
+            Text(t("anonymous")).font(.title3.weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
+            Text(t("privacy")).foregroundStyle(.secondary)
+            Text(t("language")).font(.headline).foregroundStyle(EdgeCareStyle.graphite)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 12)], alignment: .leading, spacing: 12) {
+                ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in
+                    let selected = model.language.lowercased().hasPrefix(code)
+                    Button { model.languageChosen = true; model.language = code } label: { Text(name).frame(maxWidth: .infinity) }
+                        .buttonStyle(LanguageChipStyle(selected: selected))
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            primary(t(kiosk ? "createNew" : "start")) { model.step = 1 }
+            if kiosk {
+                HStack(spacing: 12) {
+                    Button(t("updateExisting")) { model.step = -1 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
+                    Button(t("bookAppointment")) { model.step = 8 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
+                }
+            }
+        }
     }
     private var emergencyNotice: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -401,14 +433,20 @@ public struct IntakeView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text(t("tailoredSafety")).font(.subheadline).foregroundStyle(.secondary)
             Text("\(model.safety.currentIndex + 1) / \(model.safety.totalCount)").font(.caption)
-            heading(t(question.copyKey))
+            guideHeading(t(question.copyKey), pose: .listening)
             ForEach(["yes", "no", "unsure"], id: \.self) { answer in
+                let chosen = model.safety.answers[question.id.rawValue] == answer
                 Button {
                     speech.stop()
                     if let answer = SafetyAnswer(rawValue: answer) { model.answerSafetyQuestion(answer) }
                 } label: {
-                    HStack { Text(t(answer)); Spacer(); if model.safety.answers[question.id.rawValue] == answer { Image(systemName: "checkmark.circle.fill") } }.frame(minHeight: 48)
-                }.buttonStyle(.bordered).tint(EdgeCareStyle.mulberry)
+                    HStack {
+                        Text(t(answer)); Spacer()
+                        Image(systemName: chosen ? "checkmark.circle.fill" : "chevron.forward")
+                            .foregroundStyle(chosen ? EdgeCareStyle.mulberry : Color.secondary)
+                    }
+                }.buttonStyle(EdgeCareRowButtonStyle(selected: chosen))
+                    .accessibilityAddTraits(chosen ? .isSelected : [])
             }
             speechControls(prompt: t(question.copyKey), input: false)
         }
@@ -416,14 +454,14 @@ public struct IntakeView: View {
     private func speechControls(prompt: String, input: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button { speech.speak(prompt, language: model.language) } label: { Label(t("read"), systemImage: "speaker.wave.2") }.frame(minHeight: 48)
+                Button { speech.speak(prompt, language: model.language) } label: { Label(t("read"), systemImage: "speaker.wave.2") }
                 if input {
                     Button {
                         if speech.listening { speech.stop() }
                         else { Task { await speech.start(language: model.language) { model.concern = $0; model.lastActivity = Date() } } }
-                    } label: { Label(t(speech.listening ? "stop" : "speak"), systemImage: speech.listening ? "stop.circle" : "mic") }.frame(minHeight: 48)
+                    } label: { Label(t(speech.listening ? "stop" : "speak"), systemImage: speech.listening ? "stop.circle" : "mic") }
                 }
-            }.buttonStyle(.bordered)
+            }.buttonStyle(.edgeCareSecondary)
             Text(t(speech.unavailable ? "speechUnavailable" : "speechPrivacy")).font(.caption).foregroundStyle(.secondary)
         }
     }

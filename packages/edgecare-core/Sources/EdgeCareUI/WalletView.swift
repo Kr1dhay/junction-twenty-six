@@ -10,11 +10,13 @@ public struct ReferralHandoff: View {
             Label(Copy.text("anonymous", language), systemImage: "lock.shield")
             Text(record.id).font(.system(.headline, design: .monospaced)).textSelection(.enabled)
                 .accessibilityLabel("Referral ID: \(record.id)")
-            ShareLink(item: record.id) { Label(Copy.text("referralID", language), systemImage: "square.and.arrow.up") }.buttonStyle(.bordered)
+            ShareLink(item: record.id) { Label(Copy.text("referralID", language), systemImage: "square.and.arrow.up") }.buttonStyle(.edgeCareSecondary)
             Text(Copy.text("handoff", language))
             Text(record.patientLanguageSummary).font(.body)
             LabeledContent(Copy.text("expires", language), value: String(record.expiresAt.prefix(10)))
         }
+        .foregroundStyle(EdgeCareStyle.graphite)
+        .edgeCareCard()
     }
 }
 
@@ -25,7 +27,12 @@ public struct WalletView: View {
     public var body: some View {
         List {
             Section { SessionBanner(connected: app.connected, language: language) }
-            if app.wallet.isEmpty { Text(Copy.text("empty", language)).foregroundStyle(.secondary) }
+            if app.wallet.isEmpty {
+                HStack(spacing: 14) {
+                    EdiView(pose: .listening).frame(width: 52, height: 53)
+                    Text(Copy.text("empty", language)).foregroundStyle(.secondary)
+                }.padding(.vertical, 6)
+            }
             ForEach(app.wallet) { entry in
                 NavigationLink {
                     ScrollView {
@@ -36,18 +43,19 @@ public struct WalletView: View {
                                 Text(Copy.text("pending", language))
                             }
                         }.padding(24).frame(maxWidth: 720)
-                    }.navigationTitle(Copy.text("wallet", language))
+                    }.background(EdgeCareBackground()).navigationTitle(Copy.text("wallet", language))
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(String(entry.record.id.prefix(8))).font(.headline.monospaced())
                         Text(entry.record.recommendedSpecialty.replacingOccurrences(of: "_", with: " "))
-                        Label(Copy.text(entry.state.rawValue, language), systemImage: entry.state == .spent ? "checkmark.seal" : "lock.shield").font(.caption)
+                        EdgeCareStatusPill(Copy.text(entry.state.rawValue, language))
                     }.padding(.vertical, 8)
                 }
             }
             if let message = app.message { Section { Text(message).font(.footnote) } }
             Section { Button(Copy.text("sync", language)) { Task { await app.sync() } }.disabled(app.busy || app.session == nil) }
         }
+        .edgeCareListBackground()
         .navigationTitle(Copy.text("wallet", language))
         .task { await app.refresh() }
         .refreshable { await app.sync() }
