@@ -69,7 +69,7 @@ public struct OnDeviceTriageEngine: TriageEngine {
         if letter { symptoms.append("screening_letter") }
         if symptoms.isEmpty { symptoms = ["health_concern"] }
         let priority = emergency || bleeding || lump || skin || persistent
-        let summary = emergency ? "Scripted demo flagged possible emergency words. Emergency assessment takes priority; do not wait for a referral." : "Scripted demo intake: \(symptoms.joined(separator: ", ")). Symptoms and timing need clinician review. Demo priority is not a validated medical score."
+        let summary = emergency ? "Possible emergency words reported. Emergency assessment takes priority; do not wait for a referral." : "Reported: \(symptoms.joined(separator: ", ")). Symptoms and timing need clinician review."
         return TriageGuidance(message: Self.message(language: lang, emergency: emergency, letter: letter),
             followUpQuestions: Self.questions(language: lang), riskBand: priority ? .high : .medium,
             riskScore: emergency ? 95 : priority ? 75 : 50, recommendedSpecialty: skin ? "dermatology" : "general_practice",

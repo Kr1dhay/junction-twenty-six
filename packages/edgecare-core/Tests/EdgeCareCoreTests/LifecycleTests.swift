@@ -88,12 +88,19 @@ import XCTest
         let app = try session(directory: directory, chain: chain, api: api)
         _ = try await app.cacheReferral(id: record.id)
         await app.setOnline(false)
-        let outcome = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        let verification = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        XCTAssertEqual(verification.referralID, record.id)
+        let untouched = await chain.read(referralID: record.id)
+        XCTAssertEqual(untouched?.spent, false, "Verification must not consume the referral")
+        let outcome = try await app.markUsed(record: record, verification: verification)
         XCTAssertEqual(outcome.settlement, .provisional)
         let account = await chain.read(referralID: record.id)
         XCTAssertEqual(account?.spent, false)
-        do { _ = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes()); XCTFail("Local replay must fail") }
+        do { _ = try await app.markUsed(record: record, verification: verification); XCTFail("Local replay must fail") }
         catch { XCTAssertEqual(error as? CoreError, .alreadySpent) }
+        // The patient can still be authenticated for a new visit.
+        let reverified = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        XCTAssertEqual(reverified.referralID, record.id)
         let reopened = try session(directory: directory, chain: chain, api: api)
         let report = try await reopened.sync()
         XCTAssertEqual(report.confirmedSpends, 1)
@@ -101,6 +108,25 @@ import XCTest
         XCTAssertEqual(entries.first?.state, .spent)
         let after = await chain.read(referralID: record.id)
         XCTAssertEqual(after?.spent, true)
+    }
+    func testUsedReferralCanBeReverifiedForANewVisit() async throws {
+        let directory = try folder(), record = try await record()
+        let chain = try MockChainClient(storeURL: directory.appendingPathComponent("registry.json"))
+        try await chain.create(referralID: record.id, hash: record.commitmentHash)
+        let api = MockReferralAPI(records: [record])
+        let app = try session(directory: directory, chain: chain, api: api)
+        _ = try await app.cacheReferral(id: record.id)
+        let first = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        _ = try await app.markUsed(record: record, verification: first)
+        let entries = await app.walletEntries()
+        XCTAssertEqual(entries.first?.state, .spent)
+
+        // Relaunching drops in-memory verification, so the patient authenticates again.
+        let reopened = try session(directory: directory, chain: chain, api: api)
+        let second = try await reopened.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        XCTAssertEqual(second.referralID, record.id)
+        do { _ = try await reopened.markUsed(record: record, verification: second); XCTFail("A used referral cannot be consumed twice") }
+        catch { XCTAssertEqual(error as? CoreError, .alreadySpent) }
     }
     func testFirstSharedSpendWinsAgainstQueuedOfflineSpend() async throws {
         let directory = try folder(), record = try await record()
@@ -110,7 +136,8 @@ import XCTest
         let app = try session(directory: directory, chain: chain, api: api)
         _ = try await app.cacheReferral(id: record.id)
         await app.setOnline(false)
-        _ = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        let verification = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        _ = try await app.markUsed(record: record, verification: verification)
         // A different doctor's operation reaches the shared registry first.
         try await chain.spend(referralID: record.id, hash: record.commitmentHash, operationID: UUID().uuidString.lowercased())
         let reopened = try session(directory: directory, chain: chain, api: api)
@@ -133,7 +160,8 @@ import XCTest
         let api = MockReferralAPI(records: [record])
         let app = try session(directory: directory, chain: chain, api: api)
         _ = try await app.cacheReferral(id: record.id)
-        let outcome = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        let verification = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        let outcome = try await app.markUsed(record: record, verification: verification)
         XCTAssertEqual(outcome.settlement, .provisional)
         let pending = await app.outbox.pendingSpends()
         XCTAssertEqual(pending.count, 1)
@@ -149,7 +177,9 @@ import XCTest
         let chain = try MockChainClient(storeURL: directory.appendingPathComponent("registry.json"))
         let app = try session(directory: directory, chain: chain, api: MockReferralAPI(), online: false)
         try await app.wallet.store(record)
-        do { _ = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes()); XCTFail("No account cached") }
+        // Identity verification is local and succeeds; consumption needs a cached commitment.
+        let verification = try await app.verify(record: record, passcode: "0123", strokes: DemoData.signatureStrokes())
+        do { _ = try await app.markUsed(record: record, verification: verification); XCTFail("No account cached") }
         catch { XCTAssertEqual(error as? CoreError, .noCachedCommitment) }
         let pending = await app.outbox.pendingSpends()
         XCTAssertTrue(pending.isEmpty)

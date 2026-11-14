@@ -118,6 +118,24 @@ public enum DemoData {
 }
 public enum CoreError: Error, Equatable { case invalidPasscode, invalidSalt, invalidSignature, notConfigured, conflict, notFound, alreadySpent, expired, verificationFailed, invalidConfiguration, passcodesDoNotMatch, emptyConcern, offline, noCachedCommitment, consentRequired, invalidResponse, unauthorized, providerUnavailable, languageUncertain }
 
+public extension ReferralRecord {
+    /// Clinician-facing description. Older records stored the scripted-demo disclaimers inside
+    /// `free_text_summary`; strip that boilerplate at presentation time. Disclaimers belong in
+    /// the UI, not in the patient's referral description.
+    var clinicalDescription: String {
+        let boilerplate = [
+            "Scripted demo intake: ",
+            "Scripted demo flagged possible emergency words. ",
+            " Demo priority is not a validated medical score.",
+            "Demo priority is not a validated medical score."
+        ]
+        var text = freeTextSummary
+        for phrase in boilerplate { text = text.replacingOccurrences(of: phrase, with: "") }
+        while text.contains(".. ") { text = text.replacingOccurrences(of: ".. ", with: ". ") }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 public extension DemoData {
     static let passcode = "1234"
     static func signatureStrokes() -> [[SignaturePoint]] {

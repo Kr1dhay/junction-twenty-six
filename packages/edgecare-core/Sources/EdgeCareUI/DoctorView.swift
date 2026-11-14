@@ -53,7 +53,7 @@ public struct DoctorRootView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text(String(record.id.prefix(8))).font(.headline.monospaced()); Spacer(); Text((app.wallet.first { $0.id == record.id })?.state.rawValue ?? record.status.rawValue).font(.caption.weight(.semibold)) }
             Text(record.recommendedSpecialty.replacingOccurrences(of: "_", with: " ")).font(.subheadline)
-            Text(record.freeTextSummary).lineLimit(2).foregroundStyle(.secondary)
+            Text(record.clinicalDescription).lineLimit(2).foregroundStyle(.secondary)
             Text("\(record.language.uppercased()) · \(record.riskBand.rawValue) demo priority · \(record.riskScore)/100").font(.caption)
         }.padding(.vertical, 8)
     }
@@ -72,6 +72,7 @@ public struct DoctorVerificationView: View {
     @State private var passcode = ""
     @State private var strokes: [[SignaturePoint]] = []
     @State private var busy = false
+    @State private var verification: PatientVerification?
     @State private var outcome: VerificationOutcome?
     @State private var error: String?
     @State private var lastActivity = Date()
@@ -81,29 +82,41 @@ public struct DoctorVerificationView: View {
         self.record = record; self.app = app; _language = State(initialValue: record.language)
     }
     private func t(_ key: String) -> String { Copy.text(key, language) }
+    private var walletState: WalletState { app.wallet.first(where: { $0.id == record.id })?.state ?? .available }
+    private var isUsed: Bool { [.spent, .provisionalSpend, .conflict].contains(walletState) }
     public var body: some View {
         Form {
             Section("Referral") {
                 Text(record.id).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                Text(record.freeTextSummary)
-                LabeledContent("State", value: app.wallet.first(where: { $0.id == record.id })?.state.rawValue ?? record.status.rawValue)
+                Text(record.clinicalDescription)
+                LabeledContent("State", value: walletState.rawValue)
                 LabeledContent("Priority", value: "\(record.riskBand.rawValue) · \(record.riskScore)/100 (demo)")
                 if record.letterScan.present { Text(record.letterScan.extractedText ?? "Letter noted; no readable text.") }
                 if record.lesionPhoto.present { Text(record.lesionPhoto.assessment ?? "Skin concern noted. No medical image model available.") }
             }
-            if let outcome {
-                Section {
-                    let walletState = app.wallet.first(where: { $0.id == record.id })?.state
-                    let conflict = walletState == .conflict
-                    let provisional = outcome.settlement == .provisional && walletState != .spent
-                    Label(conflict ? "CONFLICT · shared registry rejected this use" : provisional ? "PROVISIONAL · awaiting registry" : outcome.settlement == .localDemo ? "VERIFIED · local demo only" : "VERIFIED · shared demo registry", systemImage: conflict ? "exclamationmark.octagon" : provisional ? "clock.badge.exclamationmark" : "checkmark.seal.fill")
-                        .font(.title2.weight(.bold)).foregroundStyle(conflict ? Color.red : provisional ? Color.orange : Color.green)
-                    Text(conflict ? "Another use was accepted first. This provisional use is not confirmed. Review the referral with the clinician." : !provisional && outcome.settlement == .provisional ? "The shared demo registry has now confirmed this use." : outcome.message)
-                    if provisional { Text("Offline results do not guarantee single use across devices. First accepted spend wins; sync before treating the registry state as settled.") }
-                    Button("Sync and refresh") { Task { await app.sync() } }.disabled(app.busy)
-                    if let message = app.message { Text(message).font(.footnote) }
+            if let verification {
+                Section("Patient") {
+                    Label("PATIENT VERIFIED", systemImage: "checkmark.seal.fill")
+                        .font(.title2.weight(.bold)).foregroundStyle(Color.green)
+                    Text("Signature and four-digit code matched at \(verification.verifiedAt.formatted(date: .omitted, time: .shortened)). This confirms the patient for this visit.")
                 }
-            } else if record.status == .open && ![WalletState.spent, .provisionalSpend, .conflict].contains(app.wallet.first(where: { $0.id == record.id })?.state ?? .available) {
+                if isUsed {
+                    Section {
+                        Label("Referral already marked used", systemImage: "lock.fill").font(.headline)
+                        Text("This referral's single use has already been consumed. You can still verify this patient above for a new visit.")
+                    }
+                } else {
+                    Section {
+                        Button { Task { await markUsed(verification) } } label: {
+                            if busy { ProgressView() } else { Label("Mark referral as used", systemImage: "checkmark.shield") }
+                        }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).frame(minHeight: 48)
+                            .disabled(busy || app.session == nil)
+                        Text("Verification alone does not use the referral. Marking it used consumes its single use in the shared registry.").font(.footnote).foregroundStyle(.secondary)
+                        if let error { Text(error).foregroundStyle(.red) }
+                    }
+                }
+                Section { Button("Verify patient again") { resetVerification() }.disabled(busy) }
+            } else {
                 Section {
                     Picker(t("language"), selection: $language) {
                         ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
@@ -118,18 +131,29 @@ public struct DoctorVerificationView: View {
                 }.environment(\.layoutDirection, language.lowercased().hasPrefix("ar") ? .rightToLeft : .leftToRight)
                 Section {
                     Button { Task { await verify() } } label: {
-                        if busy { ProgressView() } else { Label("Verify and mark single use", systemImage: "checkmark.shield") }
+                        if busy { ProgressView() } else { Label("Verify patient", systemImage: "person.badge.shield.checkmark") }
                     }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).frame(minHeight: 48)
                         .disabled(busy || passcode.count != 4 || strokes.flatMap { $0 }.count < 4 || app.session == nil)
-                    Text("Success consumes this referral. Matching is demo-grade, not a validated identity check.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Verification checks the signature and code on this device. It does not mark the referral as used.").font(.footnote).foregroundStyle(.secondary)
+                    if isUsed { Text("This referral is already marked used. You can still verify the patient to log a new visit.").font(.footnote).foregroundStyle(.orange) }
                     if let error { Text(error).foregroundStyle(.red) }
                 }
                 Section("Synthetic demo") {
                     Text("Only for synthetic demo referrals enrolled with the sample. Code: 1234.").font(.caption)
                     Button("Use sample signature + 1234") { strokes = DemoData.signatureStrokes(); passcode = DemoData.passcode }
                 }
-            } else {
-                Section { Label("This referral has been used, is pending settlement, or is no longer open. Check the latest shared state before proceeding.", systemImage: "lock.fill") }
+            }
+            if let outcome {
+                Section {
+                    let conflict = walletState == .conflict
+                    let provisional = outcome.settlement == .provisional && walletState != .spent
+                    Label(conflict ? "CONFLICT · shared registry rejected this use" : provisional ? "PROVISIONAL · awaiting registry" : outcome.settlement == .localDemo ? "MARKED USED · local demo only" : "MARKED USED · shared demo registry", systemImage: conflict ? "exclamationmark.octagon" : provisional ? "clock.badge.exclamationmark" : "checkmark.seal.fill")
+                        .font(.title2.weight(.bold)).foregroundStyle(conflict ? Color.red : provisional ? Color.orange : Color.green)
+                    Text(conflict ? "Another use was accepted first. This provisional use is not confirmed. Review the referral with the clinician." : !provisional && outcome.settlement == .provisional ? "The shared demo registry has now confirmed this use." : outcome.message)
+                    if provisional { Text("Offline results do not guarantee single use across devices. First accepted spend wins; sync before treating the registry state as settled.") }
+                    Button("Sync and refresh") { Task { await app.sync() } }.disabled(app.busy)
+                    if let message = app.message { Text(message).font(.footnote) }
+                }
             }
         }
         .navigationTitle("Verify referral")
@@ -139,16 +163,24 @@ public struct DoctorVerificationView: View {
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
             if Date().timeIntervalSince(lastActivity) > 120 { clearSecrets() }
         }
-        .onDisappear { clearSecrets() }
+        .onDisappear { clearSecrets(); resetVerification() }
     }
     private func clearSecrets() { passcode = ""; strokes = []; speech.stop() }
+    private func resetVerification() { verification = nil; outcome = nil; error = nil; clearSecrets() }
     private func verify() async {
         guard let session = app.session else { return }
-        busy = true; error = nil
+        busy = true; error = nil; outcome = nil
         let submittedPIN = passcode, submittedStrokes = strokes
         clearSecrets()
         defer { busy = false }
-        do { outcome = try await session.verify(record: record, passcode: submittedPIN, strokes: submittedStrokes); await app.refresh() }
+        do { verification = try await session.verify(record: record, passcode: submittedPIN, strokes: submittedStrokes) }
+        catch { self.error = t("error") + " (\(error))" }
+    }
+    private func markUsed(_ verification: PatientVerification) async {
+        guard let session = app.session else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do { outcome = try await session.markUsed(record: record, verification: verification); await app.refresh() }
         catch { self.error = t("error") + " (\(error))" }
     }
 }

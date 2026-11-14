@@ -33,7 +33,14 @@ public struct EnrollmentService: Sendable {
         let triage = try CommitmentCrypto.encrypt(privateDetail, passcode: passcode, salt: salt)
         let proposedLanguage = draft.language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let language = proposedLanguage.range(of: "^[a-z]{2,3}(-[a-z0-9]{2,8})*$", options: .regularExpression) != nil && proposedLanguage.count <= 35 ? proposedLanguage : "en"
-        let englishSummary = (draft.clinicalProfile.map { $0.clinicianSummary + ". " } ?? "") + draft.guidance.clinicianSummary
+        // Keep the clinician-facing description free of demo disclaimers; those stay in the UI.
+        let englishSummary = [draft.clinicalProfile?.clinicianSummary, draft.guidance.clinicianSummary]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: "") { result, part in
+                if !result.isEmpty { result += result.hasSuffix(".") ? " " : ". " }
+                result += part
+            }
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return ReferralRecord(referralID: referralID.uuidString.lowercased(), createdAt: formatter.string(from: now),
             source: draft.source, kioskID: nil, language: language,

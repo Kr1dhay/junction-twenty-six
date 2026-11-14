@@ -3,12 +3,13 @@ public struct VerificationService: Sendable {
     public let chain: any ChainClient
     public init(chain: any ChainClient) { self.chain = chain }
     /// Authentication is entirely local, using the enrolled template bytes for the commitment.
+    /// It confirms that the signature and code belong to this referral. It deliberately does
+    /// not consume the referral, and it still succeeds after single use so a clinician can
+    /// re-authenticate the same patient for a new visit.
     public static func authenticate(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) throws -> String {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let expiry = formatter.date(from: record.expiresAt) ?? ISO8601DateFormatter().date(from: record.expiresAt)
         guard let expiry, expiry > now else { throw CoreError.expired }
-        guard record.status != .spent else { throw CoreError.alreadySpent }
-        guard record.status == .open else { throw CoreError.expired }
         guard let salt = Data(base64Encoded: record.salt), let encrypted = Data(base64Encoded: record.signatureTemplateEncrypted),
               let id = UUID(uuidString: record.id) else { throw CoreError.verificationFailed }
         let enrolledData: Data
@@ -26,6 +27,17 @@ public struct VerificationService: Sendable {
         guard let account = try await chain.read(referralID: record.id), account.commitmentHash == hash else { throw CoreError.verificationFailed }
         guard !account.spent else { throw CoreError.alreadySpent }
         try await chain.spend(referralID: record.id, hash: hash, operationID: UUID().uuidString.lowercased())
+    }
+}
+/// Proof that the patient was authenticated during this visit. Constructed only inside the
+/// core module, held in view state, and never persisted: relaunching the app or leaving the
+/// verification screen requires the signature and code again.
+public struct PatientVerification: Sendable, Equatable {
+    public let referralID: String
+    public let commitmentHash: String
+    public let verifiedAt: Date
+    init(referralID: String, commitmentHash: String, verifiedAt: Date = Date()) {
+        self.referralID = referralID; self.commitmentHash = commitmentHash; self.verifiedAt = verifiedAt
     }
 }
 public enum VerificationSettlement: String, Sendable { case localDemo, confirmed, provisional }

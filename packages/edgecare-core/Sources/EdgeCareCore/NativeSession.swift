@@ -143,17 +143,29 @@ public actor NativeSession {
             throw error
         }
     }
-    public func verify(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]]) async throws -> VerificationOutcome {
+    /// Authenticates the patient for this visit without consuming the referral. It succeeds
+    /// even after the referral was marked used, so the clinician can log a new visit.
+    public func verify(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]]) async throws -> PatientVerification {
         try enforceLocalAdapters()
+        let hash = try VerificationService.authenticate(record: record, passcode: passcode, strokes: strokes)
+        return PatientVerification(referralID: record.id, commitmentHash: hash)
+    }
+    /// Consumes the referral's single use after a successful `verify`. Verification and
+    /// consumption are separate actions: verifying the patient never spends the referral.
+    public func markUsed(record: ReferralRecord, verification: PatientVerification) async throws -> VerificationOutcome {
+        try enforceLocalAdapters()
+        guard verification.referralID == record.id, verification.commitmentHash == record.commitmentHash else { throw CoreError.verificationFailed }
         // Prevent actor reentrancy from allowing two local attempts to queue independently.
         guard !verifying.contains(record.id) else { throw CoreError.alreadySpent }
         verifying.insert(record.id); defer { verifying.remove(record.id) }
-        let hash = try VerificationService.authenticate(record: record, passcode: passcode, strokes: strokes)
+        let hash = verification.commitmentHash
         if let existing = await wallet.entry(id: record.id) {
             guard ![.spent, .provisionalSpend, .conflict].contains(existing.state) else { throw CoreError.alreadySpent }
         }
         if configuration.demoMode {
-            try await VerificationService(chain: chain).verifyAndSpend(record: record, passcode: passcode, strokes: strokes)
+            guard let account = try await chain.read(referralID: record.id), account.commitmentHash == hash else { throw CoreError.verificationFailed }
+            guard !account.spent else { throw CoreError.alreadySpent }
+            try await chain.spend(referralID: record.id, hash: hash, operationID: UUID().uuidString.lowercased())
             try await wallet.store(record, state: .spent, account: try await chain.read(referralID: record.id))
             return VerificationOutcome(settlement: .localDemo, message: "Verified and spent in this device's local demo registry. Other devices do not share this registry.")
         }

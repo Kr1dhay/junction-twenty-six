@@ -54,6 +54,16 @@ import XCTest
         do { try await reopened.spend(referralID: record.id); XCTFail("Replay must fail") }
         catch { XCTAssertEqual(error as? CoreError, .alreadySpent) }
     }
+    func testAuthenticationStillWorksAfterSingleUse() throws {
+        // Identity verification is independent of consumption: a spent referral must still
+        // authenticate its patient so the clinician can log a new visit.
+        let record = try DemoData.referrals()[0]
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+        object["status"] = "spent"
+        let spent = try JSONDecoder().decode(ReferralRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        let hash = try VerificationService.authenticate(record: spent, passcode: "1234", strokes: [(0..<8).map { SignaturePoint(x: Double($0), y: Double($0)) }])
+        XCTAssertEqual(hash, record.commitmentHash)
+    }
     func testOutboxPersistsAndDoesNotSyncInDemoMode() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
