@@ -157,9 +157,11 @@ function Consultations({ referralID }: { referralID: string }) {
     const timer = setInterval(() => void load(), 5000);
     return () => { controller.abort(); clearInterval(timer); };
   }, [referralID]);
+  // Key points are stored as "- " bullet lines; older records may hold free-text notes instead.
+  const bullets = (text: string) => text.split("\n").map(line => line.trim().replace(/^[-•*]\s*/, "")).filter(Boolean);
   return <section className="detail-section consultations" aria-live="polite"><h3>Consultations</h3>
     {error && <p className="field-error">{error}</p>}
-    {!consultations ? <p>Loading consultation notes…</p> : consultations.length === 0 ? <p>No translated consultation recorded yet. Start one from the doctor app after verifying the patient.</p> :
+    {!consultations ? <p>Loading consultation notes…</p> : consultations.length === 0 ? <p>No consultation recorded yet. Start one from the doctor app after verifying the patient.</p> :
       consultations.map(item => <article key={item.consultation_id} className="consultation-card">
         <header><strong>{date(item.started_at)} · {time(item.started_at)}–{time(item.ended_at)} UTC</strong><span>{languages[item.doctor_language] ?? item.doctor_language} ↔ {languages[item.patient_language] ?? item.patient_language}</span></header>
         <p className="confirmed-badge"><Icon kind="shield" />Confirmed by patient {time(item.confirmation.patient_confirmed_at)} and clinician {time(item.confirmation.doctor_confirmed_at)} UTC</p>
@@ -170,15 +172,15 @@ function Consultations({ referralID }: { referralID: string }) {
           return textValue ? <div key={key}><dt>{label}</dt><dd>{key === "recommended_specialty" ? title(textValue) : textValue}</dd></div> : null;
         })}</dl>
         {(item.recording.discrepancies.length > 0 || item.confirmation.disputed_items.length > 0) && <div className="consultation-warning"><strong>Review before acting</strong><ul>{[...item.recording.discrepancies, ...item.confirmation.disputed_items].map(text => <li key={text}>{text}</li>)}</ul></div>}
-        {item.meeting_notes && <details><summary>Meeting notes</summary><p>{item.meeting_notes}</p></details>}
-        <details><summary>Summary shown to the patient <span>{languages[item.patient_language] ?? item.patient_language}</span></summary><p lang={item.patient_language} dir="auto">{item.patient_language_summary}</p>{item.meeting_notes_patient_language && <p lang={item.patient_language} dir="auto">{item.meeting_notes_patient_language}</p>}</details>
-        <details><summary>Interpreted transcript <span>{item.transcript.length} segments · {item.recording.transcript_available ? `recorded with ${item.recording.model ?? "Gemini Live"}` : "translation transcript only"}</span></summary>
+        {item.meeting_notes && <div className="consultation-key-points"><strong>Key points</strong><ul>{bullets(item.meeting_notes).map((point, index) => <li key={index}>{point}</li>)}</ul></div>}
+        <details><summary>Summary shown to the patient <span>{languages[item.patient_language] ?? item.patient_language}</span></summary><p lang={item.patient_language} dir="auto">{item.patient_language_summary}</p>{item.meeting_notes_patient_language && <ul lang={item.patient_language} dir="auto">{bullets(item.meeting_notes_patient_language).map((point, index) => <li key={index}>{point}</li>)}</ul>}</details>
+        {item.transcript.length > 0 && <details><summary>Interpreted transcript <span>{item.transcript.length} segments · {item.doctor_language === item.patient_language ? "same language" : `${item.doctor_language.toUpperCase()} \u2194 ${item.patient_language.toUpperCase()}`}</span></summary>
           <ol className="transcript">{item.transcript.map(segment => <li key={segment.seq} className={segment.flagged ? "flagged" : undefined}>
             <span className="speaker">{segment.speaker === "doctor" ? "Clinician" : "Patient"}{segment.flagged ? " · flagged" : ""}</span>
             <p lang={segment.source_language} dir="auto">{segment.original_text}</p>
             <p lang={segment.target_language} dir="auto" className="translation">{segment.correction ?? segment.translated_text}{segment.correction ? " (corrected)" : ""}</p>
           </li>)}</ol>
-        </details>
+        </details>}
       </article>)}
   </section>;
 }

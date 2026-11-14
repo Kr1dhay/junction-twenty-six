@@ -123,7 +123,12 @@ export async function structuredLLM<T>(config: VoiceConfig, request: Requester, 
       generationConfig: { responseMimeType: "application/json", responseJsonSchema: call.jsonSchema, temperature },
     }),
   });
-  if (!response.ok) throw new VoiceError(call.unavailableMessage ?? `${runware ? "Runware Gemini" : "Gemini"} could not complete this request.`);
+  if (!response.ok) {
+    // Status and the provider's own error text (truncated) only, so rejected requests are diagnosable.
+    const detail = await response.text().then(text => text.slice(0, 300), () => "");
+    console.warn(`structuredLLM: ${runware ? "Runware" : "Gemini"} ${call.toolName} failed with HTTP ${response.status}: ${detail}`);
+    throw new VoiceError(call.unavailableMessage ?? `${runware ? "Runware Gemini" : "Gemini"} could not complete this request.`);
+  }
   try {
     if (runware) {
       const parsed = z.object({ choices: z.array(z.object({ finish_reason: z.literal("tool_calls"), message: z.object({ tool_calls: z.array(z.object({ type: z.literal("function"), function: z.object({ name: z.literal(call.toolName), arguments: z.string().min(1) }) })).length(1), refusal: z.null().optional() }) })).min(1) }).parse(await readJSON(response, 512 * 1024));

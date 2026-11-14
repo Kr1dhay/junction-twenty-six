@@ -81,13 +81,16 @@ final class ConsultationTests: XCTestCase {
 
     func testRecordRequiresConfirmationAndStampsAfterTheSession() throws {
         var review = review()
-        XCTAssertThrowsError(try review.record(consultationID: UUID().uuidString, referralID: UUID().uuidString, startedAt: Date(timeIntervalSince1970: 0), doctorLanguage: "en", patientLanguage: "so", recordingModel: "gemini-3.8-live", recordingAvailable: true))
+        XCTAssertThrowsError(try review.record(consultationID: UUID().uuidString, referralID: UUID().uuidString, startedAt: Date(timeIntervalSince1970: 0), doctorLanguage: "en", patientLanguage: "so"))
         // A confirmation timestamp can never precede the end of the session.
         try review.confirmPatient(at: Date(timeIntervalSince1970: 10)); review.confirmDoctor(at: Date(timeIntervalSince1970: 10))
-        let record = try review.record(consultationID: "AAAAAAAA-0000-4000-8000-000000000001", referralID: "BBBBBBBB-0000-4000-8000-000000000001", startedAt: Date(timeIntervalSince1970: 0), doctorLanguage: "en", patientLanguage: "so", recordingModel: "gemini-3.8-live", recordingAvailable: false)
+        let record = try review.record(consultationID: "AAAAAAAA-0000-4000-8000-000000000001", referralID: "BBBBBBBB-0000-4000-8000-000000000001", startedAt: Date(timeIntervalSince1970: 0), doctorLanguage: "en", patientLanguage: "so")
         XCTAssertEqual(record.consultationID, "aaaaaaaa-0000-4000-8000-000000000001")
         XCTAssertEqual(record.confirmation.patientConfirmedAt, record.endedAt)
         XCTAssertNil(record.recording.model)
+        // Only the summary and key points reach the health record, never the conversation itself.
+        XCTAssertFalse(review.segments.isEmpty)
+        XCTAssertTrue(record.transcript.isEmpty)
         XCTAssertFalse(record.recording.transcriptAvailable)
     }
 
@@ -106,30 +109,39 @@ final class ConsultationTests: XCTestCase {
         XCTAssertEqual(parser.flush(), [])
     }
 
-    func testScribeURLConstrainsRecognitionToBothLanguages() throws {
-        let url = try RealtimeScribeClient.url(endpoint: RealtimeEndpoint(token: "t", model: "scribe_v3_live", url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime"), doctorLanguage: "en", patientLanguage: "som")
-        let items = Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-        XCTAssertEqual(items["language_code"], "en"); XCTAssertEqual(items["secondary_languages"], "so")
-        XCTAssertEqual(items["audio_format"], "pcm_16000"); XCTAssertEqual(items["commit_strategy"], "vad")
-        XCTAssertEqual(items["include_language_detection"], "true"); XCTAssertEqual(items["token"], "t")
+    func testWireStaysCompatibleWithBackendsThatStillExpectTheRemovedRecorder() throws {
+        // Notes requests always carry the legacy fields empty: the summary comes from the transcript text.
+        let segment = ConsultationSegment(seq: 0, speaker: .patient, sourceLanguage: "fi", targetLanguage: "fi", originalText: "Päätä särkee.", translatedText: "Päätä särkee.")
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ConsultationNotesRequest(consent: true, doctorLanguage: "fi", patientLanguage: "fi", transcript: [segment]))) as? [String: Any]
+        XCTAssertTrue(body?["live_transcript"] is NSNull)
+        XCTAssertEqual(body?["live_key_points"] as? [String], [])
+        XCTAssertNil(body?["clinician_edits"])
+        // Session credentials decode whether or not an older backend still returns a recorder token.
+        for json in [#"{"scribe":{"token":"t","model":"scribe_v3_live","url":"wss://x"},"expires_at":"2026-11-14T10:00:00Z"}"#,
+                     #"{"scribe":{"token":"t","model":"scribe_v3_live","url":"wss://x"},"live":null,"expires_at":"2026-11-14T10:00:00Z"}"#] {
+            XCTAssertEqual(try JSONDecoder().decode(ConsultationSessionCredentials.self, from: Data(json.utf8)).scribe.token, "t")
+        }
+    }
+
+    func testScribeURLRedetectsLanguagePerUtteranceInTwoLanguageVisits() throws {
+        func items(_ model: String, _ doctor: String, _ patient: String) throws -> [String: String] {
+            let url = try RealtimeScribeClient.url(endpoint: RealtimeEndpoint(token: "t", model: model, url: "wss://api.elevenlabs.io/v1/speech-to-text/realtime"), doctorLanguage: doctor, patientLanguage: patient)
+            return Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        }
+        // Language hints make detection sticky, so two-language visits send none.
+        let multi = try items("scribe_v3_live", "en", "som")
+        XCTAssertEqual(multi["multilang_mode"], "true"); XCTAssertNil(multi["language_code"]); XCTAssertNil(multi["secondary_languages"])
+        XCTAssertEqual(multi["audio_format"], "pcm_16000"); XCTAssertEqual(multi["commit_strategy"], "vad")
+        XCTAssertEqual(multi["include_language_detection"], "true"); XCTAssertEqual(multi["token"], "t")
+        // Other models reject multilang_mode.
+        let older = try items("scribe_v2_realtime", "en", "fi")
+        XCTAssertNil(older["multilang_mode"]); XCTAssertNil(older["language_code"])
+        // Same language: nothing to tell apart, so fix it for accuracy.
+        let same = try items("scribe_v3_live", "fi", "fin")
+        XCTAssertEqual(same["language_code"], "fi"); XCTAssertNil(same["multilang_mode"])
         XCTAssertThrowsError(try RealtimeScribeClient.url(endpoint: RealtimeEndpoint(token: "t", model: "m", url: "http://insecure"), doctorLanguage: "en", patientLanguage: "so"))
     }
 
-    func testLiveParserCollectsTranscriptKeyPointsAndResumption() throws {
-        var parser = LiveEventParser()
-        func send(_ json: String) -> [LiveRecorderEvent] { parser.ingest(Data(json.utf8)) }
-        XCTAssertEqual(send(#"{"setupComplete":{}}"#), [.ready])
-        XCTAssertEqual(send(#"{"serverContent":{"inputTranscription":{"text":"about two months"}}}"#), [.heard("about two months")])
-        XCTAssertEqual(send(#"{"serverContent":{"modelTurn":{"parts":[{"text":"- Duration about two months\n"}]}}}"#), [])
-        XCTAssertEqual(send(#"{"serverContent":{"modelTurn":{"parts":[{"text":"- Skin mark growing\nnot a bullet"}]},"turnComplete":true}}"#), [.keyPoints(["Duration about two months", "Skin mark growing"])])
-        XCTAssertEqual(send(#"{"sessionResumptionUpdate":{"newHandle":"h1","resumable":true}}"#), [.resumptionHandle("h1")])
-        XCTAssertEqual(send(#"{"sessionResumptionUpdate":{"newHandle":"h2","resumable":false}}"#), [])
-        XCTAssertEqual(send(#"{"goAway":{"timeLeft":"10s"}}"#), [.goAway])
-        let setup = try JSONSerialization.jsonObject(with: GeminiLiveRecorder.setupMessage(model: "gemini-3.8-live", resumptionHandle: "h1")) as? [String: Any]
-        let body = setup?["setup"] as? [String: Any]
-        XCTAssertEqual(body?["model"] as? String, "models/gemini-3.8-live")
-        XCTAssertEqual((body?["sessionResumption"] as? [String: Any])?["handle"] as? String, "h1")
-    }
 }
 
 @MainActor final class ConsultationSubmissionTests: XCTestCase {

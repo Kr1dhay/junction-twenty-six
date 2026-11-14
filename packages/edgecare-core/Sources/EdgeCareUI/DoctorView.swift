@@ -18,6 +18,12 @@ public struct DoctorRootView: View {
     @State private var lookupGeneration = 0
     @State private var lastLookupActivity = Date()
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG && os(iOS)
+    /// Simulator automation only: `EDGECARE_DEBUG_CONSULT=<referral id prefix|first>` opens the
+    /// consultation directly, skipping signature verification. Never compiled into release builds.
+    @State private var debugConsult: ReferralRecord?
+    @State private var debugConsultOpened = false
+    #endif
     public init() {}
     public var body: some View {
         NavigationStack {
@@ -113,6 +119,16 @@ public struct DoctorRootView: View {
             if phase != .active { cancelLookup(); selected = nil; selectedVerification = nil }
         }
         .onDisappear { cancelLookup() }
+        #if DEBUG && os(iOS)
+        .onChange(of: app.records) { _, records in
+            guard !debugConsultOpened, let wanted = ProcessInfo.processInfo.environment["EDGECARE_DEBUG_CONSULT"], !wanted.isEmpty else { return }
+            guard let record = wanted == "first" ? records.first(where: { $0.status == .open }) ?? records.first : records.first(where: { $0.id.hasPrefix(wanted.lowercased()) }) else { return }
+            debugConsultOpened = true; debugConsult = record
+        }
+        .fullScreenCover(item: $debugConsult) { record in
+            if let session = app.session { ConsultationView(record: record, session: session) }
+        }
+        #endif
     }
     private func row(_ record: ReferralRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -297,7 +313,7 @@ public struct DoctorVerificationView: View {
     private var consultationHint: String {
         if !app.connected { return "Live translation needs connected mode. Local demo mode never contacts translation services." }
         if !canConsult { return "Live translation needs a connection. The visit can continue without it." }
-        return "Two-way live translation (ElevenLabs) with a Gemini Live recording. The patient and you both confirm the notes before they are saved to the CRM. No audio is stored."
+        return "Live transcription and two-way translation (ElevenLabs). A summary is written from the transcript, and you and the patient both confirm it before it is saved to the record. No audio is stored."
     }
     private func refreshConsultAvailability() async {
         guard let session = app.session else { canConsult = false; return }

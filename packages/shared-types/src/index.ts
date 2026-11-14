@@ -150,6 +150,7 @@ export const consultationSchema = z.object({
   meeting_notes: z.string().max(20000),
   meeting_notes_patient_language: z.string().max(20000),
   transcript: z.array(consultationSegmentSchema).max(2000),
+  /** Legacy slot from the removed Gemini Live recorder; new clients send it empty. */
   recording: z.object({
     provider: z.literal("gemini-live"),
     model: z.string().max(120).nullable(),
@@ -193,8 +194,6 @@ export const consultationSessionRequestSchema = z.object({
 }).strict();
 export interface ConsultationSessionResponse {
   scribe: { token: string; model: string; url: string };
-  /** Null when Gemini Live is not configured; the session records the translation transcript only. */
-  live: { token: string; model: string; url: string } | null;
   expires_at: string;
 }
 export const consultationTranslateRequestSchema = z.object({
@@ -219,8 +218,9 @@ export const consultationNotesRequestSchema = z.object({
   doctor_language: languageCode,
   patient_language: languageCode,
   transcript: z.array(consultationSegmentSchema).min(1).max(2000),
-  live_transcript: z.string().max(200000).nullable(),
-  live_key_points: z.array(z.string().max(1000)).max(500),
+  /** Accepted and ignored: older app builds still send the removed recorder's transcript. */
+  live_transcript: z.string().max(200000).nullable().optional(),
+  live_key_points: z.array(z.string().max(1000)).max(500).optional(),
   clinician_edits: z.string().max(4000).optional(),
 }).strict();
 export type ConsultationTranslateRequest = z.infer<typeof consultationTranslateRequestSchema>;

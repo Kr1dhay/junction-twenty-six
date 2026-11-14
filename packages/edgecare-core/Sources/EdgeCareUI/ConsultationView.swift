@@ -40,14 +40,17 @@ struct ConsultationView: View {
         .interactiveDismissDisabled()
         .onChange(of: scenePhase) { _, phase in if phase != .active { controller.suspend() } }
         .onDisappear { controller.teardown() }
+        #if DEBUG
+        .task { await controller.debugAutostartIfRequested() }
+        #endif
     }
 
     @ViewBuilder private var content: some View {
         switch controller.phase {
         case .consent: consent
-        case .connecting: ProgressView("Connecting translation and recording…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .connecting: ProgressView("Connecting live transcription…").frame(maxWidth: .infinity, maxHeight: .infinity)
         case .live, .paused: live
-        case .drafting: ProgressView("Drafting notes from both transcripts…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .drafting: ProgressView("Writing the visit summary from the transcript…").frame(maxWidth: .infinity, maxHeight: .infinity)
         case .review, .submitting: reviewView
         case .finished(let outcome): finished(outcome)
         }
@@ -57,16 +60,27 @@ struct ConsultationView: View {
 
     private var consent: some View {
         Form {
-            Section("Languages") {
-                Picker("Clinician speaks", selection: $controller.doctorLanguage) {
+            Section {
+                Picker(selection: $controller.doctorLanguage) {
                     ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
-                }
-                Picker("Patient speaks", selection: $controller.patientLanguage) {
+                } label: { Label("Clinician speaks", systemImage: "stethoscope") }
+                Picker(selection: $controller.patientLanguage) {
                     ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
+                } label: { Label("Patient speaks", systemImage: "person.fill") }
+                Picker("Speaks first", selection: Binding(get: { controller.activeSpeaker }, set: { controller.setSpeaker($0) })) {
+                    Text("Clinician").tag(ConsultationSpeaker.doctor)
+                    Text("Patient").tag(ConsultationSpeaker.patient)
                 }
-                Text(controller.sameLanguage
-                     ? "Same language: no translation. During the visit, tap who is speaking. You can correct it on any sentence."
-                     : "The speaker is detected from the language spoken. You can correct it on any sentence.").font(.footnote).foregroundStyle(.secondary)
+                Label {
+                    if controller.sameLanguage {
+                        Text("**Same language** \u{00B7} no translation. Tap the speaker switch when the other person starts talking.")
+                    } else {
+                        Text("**\(name(controller.doctorLanguage)) \u{2194} \(name(controller.patientLanguage))** \u{00B7} who is speaking is detected from the language. After each pause the sentence is translated and read aloud. The speaker switch stays available for short replies.")
+                    }
+                } icon: { Image(systemName: controller.sameLanguage ? "hand.tap" : "character.bubble") }
+                .font(.footnote).foregroundStyle(.secondary)
+            } header: { Text("Set up the visit") } footer: {
+                Text("At the end, a summary is written from the transcript. You and the patient confirm it, then it is saved to the health record.")
             }
             Section(p("consultTitle")) {
                 Text(p("consultConsent")).environment(\.layoutDirection, patientDirection)
@@ -88,18 +102,20 @@ struct ConsultationView: View {
 
     private var live: some View {
         VStack(spacing: 0) {
+            ScrollViewReader { scroller in
             List {
                 Section {
                     Label(controller.phase == .paused ? "Paused · microphone off" : "Listening", systemImage: controller.phase == .paused ? "pause.circle" : "waveform")
                         .foregroundStyle(controller.phase == .paused ? Color.orange : EdgeCareStyle.mulberry).font(.headline)
                     Text(p("consultListening")).environment(\.layoutDirection, patientDirection)
-                    Label(controller.recordingStatus, systemImage: "record.circle").font(.footnote).foregroundStyle(.secondary)
+                    if controller.phase == .live { micStatus }
                     if let error = controller.error { Text(error).font(.footnote).foregroundStyle(.red) }
                 }
                 Section("Conversation") {
                     if controller.segments.isEmpty && controller.partial.isEmpty { Text("Nothing said yet.").foregroundStyle(.secondary) }
                     ForEach(controller.segments) { segment in segmentRow(segment) }
-                    if !controller.partial.isEmpty { Text(controller.partial).italic().foregroundStyle(.secondary) }
+                    if !controller.partial.isEmpty { Text(controller.partial).italic().foregroundStyle(.secondary).id("partial") }
+                    Color.clear.frame(height: 1).listRowBackground(Color.clear).id("latest")
                 }
                 if !controller.unclear.isEmpty {
                     Section(p("consultRepeat")) {
@@ -117,17 +133,14 @@ struct ConsultationView: View {
                         }
                     }
                 }
-                if !controller.keyPoints.isEmpty {
-                    Section("Key points (Gemini Live recorder)") {
-                        ForEach(Array(controller.keyPoints.enumerated()), id: \.offset) { _, point in Label(point, systemImage: "text.badge.checkmark").font(.subheadline) }
-                    }
-                }
             }
-            if controller.sameLanguage {
-                SpeakerToggle(active: controller.activeSpeaker) { controller.setSpeaker($0) }
-                    .padding(.horizontal).padding(.top, 12)
-                    .frame(maxWidth: .infinity).background(.bar)
+            // Keep the newest sentence and its translation in view as the conversation grows.
+            .onChange(of: controller.segments) { _, _ in withAnimation { scroller.scrollTo("latest", anchor: .bottom) } }
+            .onChange(of: controller.partial.isEmpty) { _, _ in withAnimation { scroller.scrollTo("latest", anchor: .bottom) } }
             }
+            SpeakerToggle(active: controller.activeSpeaker, caption: speakerCaption) { controller.setSpeaker($0) }
+                .padding(.horizontal).padding(.top, 12)
+                .frame(maxWidth: .infinity).background(.bar)
             HStack(spacing: 12) {
                 if controller.phase == .paused {
                     Button { Task { await controller.resume() } } label: { Label("Resume", systemImage: "play.fill").frame(maxWidth: .infinity) }
@@ -141,6 +154,40 @@ struct ConsultationView: View {
             }
             .frame(minHeight: 48).padding()
             .background(.bar)
+        }
+    }
+
+    private var speakerCaption: String {
+        if controller.sameLanguage { return "Tap who is speaking" }
+        switch controller.speakerSource {
+        case .detected(let language): return "Auto \u{00B7} heard \(name(language))"
+        case .manual: return "Set by tap \u{00B7} switches when a language is heard"
+        }
+    }
+
+    @ViewBuilder private var micStatus: some View {
+        switch controller.micHealth {
+        case .ok:
+            HStack(spacing: 8) {
+                Image(systemName: "mic.fill").foregroundStyle(.secondary)
+                ProgressView(value: Double(min(1, controller.inputLevel * 4))).tint(EdgeCareStyle.mulberry)
+                    .accessibilityLabel("Microphone level")
+            }.font(.footnote)
+        case .silent:
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("The microphone is sending silence.").fontWeight(.semibold)
+                    #if targetEnvironment(simulator)
+                    Text("Simulator: allow the microphone for Xcode/Simulator in macOS Privacy & Security, and check the Simulator's audio input device.")
+                    #else
+                    Text("Check that no other app is using the microphone and that it is not covered.")
+                    #endif
+                }
+            } icon: { Image(systemName: "mic.slash.fill") }
+            .font(.footnote).foregroundStyle(.orange)
+        case .stalled:
+            Label("Microphone stopped. Restarting\u{2026} If this persists, tap Pause then Resume.", systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote).foregroundStyle(.orange)
         }
     }
 
@@ -229,9 +276,11 @@ struct ConsultationView: View {
                         get: { controller.review?.draft.structured.recommendedSpecialty ?? "" },
                         set: { value in guard var review = controller.review else { return }; var draft = review.draft; draft.structured.recommendedSpecialty = value.isEmpty ? nil : value; review.editByClinician(draft); controller.review = review }))
                 }
-                Section("Clinical summary and meeting notes") {
+                Section {
                     field("Clinical summary", \.clinicalSummary)
-                    field("Meeting notes (anything unstructured)", \.meetingNotes)
+                    field("Key points (one per line)", \.meetingNotes)
+                } header: { Text("Summary and key points") } footer: {
+                    Text("This summary and these key points are what is saved to the health record. The full conversation is not saved.")
                 }
                 if review.patientSummaryStale {
                     Section {
@@ -241,8 +290,8 @@ struct ConsultationView: View {
                         }.disabled(controller.regenerating)
                     }
                 }
-                Section("Transcript and translations") {
-                    Text("Flag any sentence the patient or you think was mistranslated, and enter the correct meaning.").font(.footnote).foregroundStyle(.secondary)
+                Section("Conversation (not saved)") {
+                    Text("Used only to check the summary. Flag any sentence the patient or you think was mistranslated, and enter the correct meaning; the summary is then rewritten.").font(.footnote).foregroundStyle(.secondary)
                     ForEach(review.segments) { segment in TranscriptReviewRow(segment: segment) { flagged, correction in
                         guard var current = controller.review else { return }
                         current.setFlag(seq: segment.seq, flagged: flagged, correction: correction); controller.review = current
@@ -356,9 +405,11 @@ private struct TranscriptReviewRow: View {
     }
 }
 
-/// Two-position "who is speaking" switch for same-language visits. One tap hands the floor over.
+/// Two-position "who is speaking" switch. One tap hands the floor over; in two-language visits it
+/// also moves on its own when the other participant's language is detected.
 private struct SpeakerToggle: View {
     let active: ConsultationSpeaker
+    var caption: String? = nil
     let select: (ConsultationSpeaker) -> Void
     @Namespace private var thumb
 
@@ -372,6 +423,8 @@ private struct SpeakerToggle: View {
             .padding(4)
             .background(Capsule().fill(Color.secondary.opacity(0.12)))
             .sensoryFeedback(.selection, trigger: active)
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: active)
+            if let caption { Text(caption).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
         }
     }
 
