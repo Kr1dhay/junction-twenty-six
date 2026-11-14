@@ -1,0 +1,4 @@
+.openai/*.tar.gz
+.openai/*.tar
+artifacts/
+node_modules/
