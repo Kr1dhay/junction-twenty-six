@@ -1,5 +1,7 @@
 # Hosted Edge-Care demo
 
+Production URL: [Edge-Care clinician workspace](https://edgecare-lissankoiralas-projects.vercel.app). Use this canonical hostname for both the browser and native app API.
+
 The `edgecare` Vercel project serves the CRM and native-app API. Neon Postgres on the Free plan in Frankfurt stores encrypted referrals and the shared demo registry. SQLite remains the local adapter. Hosting does not turn this demonstration into a validated clinical service or a deployed Solana registry.
 
 Production settings are server-side Vercel environment variables: `DATABASE_URL`, `EDGECARE_SESSION_SECRET`, issuer/clinician tokens, `EDGECARE_PUBLIC_ORIGIN`, `RUNWARE_API_KEY`, `VOICE_LLM_PROVIDER=runware`, `RUNWARE_MODEL=google:gemini@3-flash`, and ElevenLabs key/models/language voices. `DEMO_MODE=true`, `CHAIN=mock`, `LLM=ondevice` keep the synthetic demo adapters enabled; explicit `EDGECARE_CLOUD_VOICE=true` opts into cloud intake. Keys and private device configuration are excluded from Git and deployment source uploads.
