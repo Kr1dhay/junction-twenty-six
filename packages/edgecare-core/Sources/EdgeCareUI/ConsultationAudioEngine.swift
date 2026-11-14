@@ -102,7 +102,7 @@ private final class TapConverter: @unchecked Sendable {
             let format = input.outputFormat(forBus: 0)
             guard format.sampleRate > 0, let converter = TapConverter(input: format) else { return false }
             let gate = self.gate
-            input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            input.installRealtimeTap(bufferSize: 4096, format: format) { buffer in
                 let chunks = converter.convert(buffer)
                 guard gate.isOpen else { return }
                 for chunk in chunks { onChunk(chunk) }

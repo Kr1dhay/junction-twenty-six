@@ -13,7 +13,7 @@ export async function explainAction(id: ActionID, scenario: Scenario, fetcher: t
   if (!plan.detected) throw new Error("No gap in this scenario");
   const key = process.env.RUNWARE_API_KEY;
   const model = process.env.RUNWARE_MODEL;
-  if (!key || !model) throw new Error("AI explanation is not configured");
+  if (!key || !model) throw new Error(`AI explanation is not configured: set ${[!key && "RUNWARE_API_KEY", !model && "RUNWARE_MODEL"].filter(Boolean).join(" and ")}`);
   const source = evidence[plan.source];
   const response = await fetcher("https://api.runware.ai/v1/chat/completions", {
     method: "POST",
@@ -35,7 +35,7 @@ export async function explainAction(id: ActionID, scenario: Scenario, fetcher: t
       parallel_tool_calls: false, temperature: 0.2, max_tokens: 700,
     }),
   });
-  if (!response.ok) throw new Error("Provider unavailable");
+  if (!response.ok) throw new Error(`Runware returned HTTP ${response.status} (check RUNWARE_API_KEY validity, credits and RUNWARE_MODEL access)`);
   const raw = z.object({ choices: z.array(z.object({ message: z.object({ tool_calls: z.array(z.object({
     function: z.object({ name: z.literal("explain_action"), arguments: z.string() }),
   })).length(1) }) })).min(1) }).parse(await readJSON(response, 64 * 1024));

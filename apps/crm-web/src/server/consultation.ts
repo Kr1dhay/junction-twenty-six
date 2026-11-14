@@ -4,7 +4,9 @@ import {
   type ConsultationSessionRequest, type ConsultationSessionResponse, type ConsultationSpeakRequest, type ConsultationTranslateRequest,
   type ConsultationTranslateResponse,
 } from "@edgecare/shared-types";
+import { Modality } from "@google/genai";
 import { readJSON } from "./http";
+import { mintToken, type TokenMinter } from "./gemini-live";
 import { assertLLMConfigured, normalizeLanguage, requester, structuredLLM, synthesizeSpeech, voiceConfig, VoiceError, type SpeechResult, type VoiceConfig } from "./voice";
 
 export interface ConsultationConfig extends VoiceConfig {
@@ -31,7 +33,7 @@ const scribeURL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const liveURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained";
 
 /** Mints short-lived client credentials; provider API keys never leave the server. */
-export async function mintSessionTokens(input: ConsultationSessionRequest, config = consultationConfig(), fetcher: typeof fetch = fetch, signal?: AbortSignal, now = () => new Date()): Promise<ConsultationSessionResponse> {
+export async function mintSessionTokens(input: ConsultationSessionRequest, config = consultationConfig(), fetcher: typeof fetch = fetch, signal?: AbortSignal, now = () => new Date(), mint: TokenMinter = mintToken): Promise<ConsultationSessionResponse> {
   if (input.consent !== true) throw new VoiceError("Explicit cloud-processing consent is required.", 400);
   if (!config.enabled) throw new VoiceError(`Cloud consultation is disabled. ${offlineHint}`, 503);
   if (!config.elevenKey) throw new VoiceError(`ElevenLabs is not configured. ${offlineHint}`, 503);
@@ -46,16 +48,17 @@ export async function mintSessionTokens(input: ConsultationSessionRequest, confi
   const expires = new Date(now().getTime() + 14 * 60 * 1000).toISOString();
   let live: ConsultationSessionResponse["live"] = null;
   if (config.geminiKey) {
-    const expireTime = new Date(now().getTime() + 30 * 60 * 1000).toISOString();
-    const newSessionExpireTime = new Date(now().getTime() + 2 * 60 * 1000).toISOString();
-    const response = await request("https://generativelanguage.googleapis.com/v1beta/auth_tokens", {
-      method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiKey },
-      body: JSON.stringify({
-        uses: 1, expireTime, newSessionExpireTime,
+    // The SDK maps liveConnectConstraints to the REST wire format; a hand-built REST body with these
+    // SDK field names is rejected by Google, which previously left every consultation without a recorder.
+    try {
+      const token = await mint(config.geminiKey, {
+        uses: 1,
+        expireTime: new Date(now().getTime() + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(now().getTime() + 2 * 60 * 1000).toISOString(),
         liveConnectConstraints: {
-          model: `models/${config.liveModel}`,
+          model: config.liveModel,
           config: {
-            responseModalities: ["TEXT"],
+            responseModalities: [Modality.TEXT],
             systemInstruction: { parts: [{ text: liveScribeInstruction }] },
             inputAudioTranscription: {},
             sessionResumption: {},
@@ -63,12 +66,15 @@ export async function mintSessionTokens(input: ConsultationSessionRequest, confi
             temperature: 0,
           },
         },
-      }),
-    });
-    // Recording is an independent cross-check; translation still works without it.
-    if (response.ok) {
-      const parsed = z.object({ name: z.string().min(1).max(4096) }).safeParse(await readJSON(response, 16 * 1024));
-      if (parsed.success) live = { token: parsed.data.name, model: config.liveModel, url: liveURL };
+        abortSignal: signal,
+      });
+      const name = z.string().min(1).max(4096).safeParse(token.name);
+      if (name.success && name.data !== config.geminiKey) live = { token: name.data, model: config.liveModel, url: liveURL };
+      else console.warn("consultation: Gemini Live returned no usable token; recording disabled for this session");
+    } catch (error) {
+      // Recording is an independent cross-check; translation still works without it. Log why (never the key).
+      console.warn("consultation: Gemini Live token request failed; recording disabled for this session:",
+        error instanceof Error ? error.message.slice(0, 300) : "unknown error");
     }
   }
   return { scribe: { token: scribeToken.data.token, model: config.realtimeSTTModel, url: scribeURL }, live, expires_at: expires };

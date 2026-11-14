@@ -24,8 +24,25 @@ public actor NativeSession {
         self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
-        let account = "wallet-v1-" + SHA256.hash(data: Data(directory.standardizedFileURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
-        return try KeychainStore().walletKey(account: account)
+        let keychain = KeychainStore()
+        let account = storageAccount(directory: directory)
+        // Carry over a key stored under the old absolute-path name so this install keeps its data.
+        if try keychain.read(account: account) == nil,
+           let legacy = try keychain.read(account: "wallet-v1-" + digest(directory.standardizedFileURL.path)), legacy.count == 32 {
+            try keychain.save(legacy, account: account)
+        }
+        return try keychain.walletKey(account: account)
+    }
+    /// Names the key by the directory's path inside the app's home. iOS moves the container to a new
+    /// UUID path on every reinstall or update but keeps its files, so an absolute path would orphan them.
+    static func storageAccount(directory: URL, home: String = NSHomeDirectory()) -> String {
+        var path = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        let root = URL(fileURLWithPath: home).standardizedFileURL.resolvingSymlinksInPath().path
+        if path == root || path.hasPrefix(root + "/") { path = "~" + path.dropFirst(root.count) }
+        return "wallet-v2-" + digest(path)
+    }
+    private static func digest(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
     public static func local(storageDirectory: URL, seedDemo: Bool = false) async throws -> NativeSession {
         let key = try storageKey(directory: storageDirectory)
