@@ -69,6 +69,17 @@ public actor NativeSession {
         guard let voiceClient else { throw CoreError.providerUnavailable }
         return try await voiceClient.normalize(VoiceTurnRequest(consent: consent, text: text, language: language, profile: profile, history: history))
     }
+    public func voiceEngine() async throws -> VoiceEngine {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.engine()
+    }
+    public func liveVoiceSession(language: String?, profile: ClinicalProfile, history: [VoiceConversationTurn], consent: Bool) async throws -> GeminiLiveCredentials {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard consent else { throw CoreError.consentRequired }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.liveSession(consent: consent, language: language, profile: profile, history: history)
+    }
     /// Called by the app's connectivity observer and airplane-mode demo control.
     public func setOnline(_ value: Bool) async {
         online = value

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@edgecare/shared-types": "workspace:*",
+    "@google/genai": "3.3.0",
     "@neondatabase/serverless": "^1.2.1",
     "better-sqlite3": "11.10.0",
     "next": "16.4.6",

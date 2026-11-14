@@ -36,6 +36,16 @@ The launcher reads issuer/clinician tokens using Next.js's development environme
 
 ## Start connected voice on the Mac
 
+For the hosted Gemini Live service, use the committed device configuration and rebuild the native streaming transport:
+
+```sh
+git pull --ff-only
+pnpm install --frozen-lockfile
+python3 scripts/connect-hosted.py --config edgecare-device.json --rebuild
+```
+
+The Google key stays on the hosted backend; the apps receive only temporary Live credentials after consent. For a local Gemini Live backend, use the [Live environment settings](voice-intake.md#gemini-live-streaming-speech), then `pnpm ios:demo`. The private setup wizard below configures the legacy ElevenLabs pipeline.
+
 ```sh
 git pull --ff-only
 pnpm ios:voice

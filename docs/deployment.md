@@ -6,6 +6,8 @@ The `edgecare` Vercel project serves the CRM and native-app API. Neon Postgres o
 
 Production settings are server-side Vercel environment variables: `DATABASE_URL`, `EDGECARE_SESSION_SECRET`, issuer/clinician tokens, `EDGECARE_PUBLIC_ORIGIN`, `RUNWARE_API_KEY`, `VOICE_LLM_PROVIDER=runware`, `RUNWARE_MODEL=google:gemini@3-flash`, and ElevenLabs key/models/language voices. `DEMO_MODE=true`, `CHAIN=mock`, `LLM=ondevice` keep the synthetic demo adapters enabled; explicit `EDGECARE_CLOUD_VOICE=true` opts into cloud intake. Provider keys, database credentials and the session-signing secret are excluded from Git. The hosted demo's device access tokens are supplied in the repository's `edgecare-device.json`.
 
+Streaming speech additionally uses the server-only `GEMINI_API_KEY`, `EDGECARE_VOICE_ENGINE=gemini_live`, `GEMINI_LIVE_MODEL=gemini-3.8-live` and `GEMINI_LIVE_VOICE=Kore`. Rebuilt native apps obtain constrained ephemeral credentials and stream directly to Google after consent; ElevenLabs is not called by that transport. Runware remains configured for form normalization, and the legacy HTTP voice endpoint remains compatible with older installed apps. Those apps must be rebuilt to use Live streaming.
+
 Every mutation for a referral holds a Postgres transaction lock. Concurrent consumption has one winner, and retrying that winning operation remains idempotent. Hosted sessions use a stable server signing secret across instances. HTTPS origin checks and device tokens protect the API. `/health` checks the database and exposes no credentials.
 
 ## Connect existing Mac simulators
