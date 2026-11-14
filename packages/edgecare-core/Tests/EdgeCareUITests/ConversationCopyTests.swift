@@ -33,7 +33,10 @@ final class ConversationCopyTests: XCTestCase {
     }
 
     func testConversationControlsAndFeedbackRecoveryHaveEveryTranslation() {
-        for key in ["conversationProcessing", "interruptReply", "conversationRepeatedInterruptions", "useTextInstead", "notYetProvided"] {
+        for key in ["conversationProcessing", "interruptReply", "conversationRepeatedInterruptions", "useTextInstead", "notYetProvided",
+                    "voiceReadyTitle", "voiceConnectingTitle", "voiceListeningTitle", "voiceProcessingTitle", "voiceSpeakingTitle",
+                    "voiceReadyHint", "voiceConnectingHint", "voiceProcessingHint", "voiceSpeakingHint", "latestDialogue",
+                    "readingAloud", "stopReading", "preparingReadAloud", "aboutVoice"] {
             XCTAssertEqual(Copy.strings[key]?.count, Copy.languages.count, key)
             for language in Copy.languages {
                 XCTAssertFalse(Copy.text(key, language).isEmpty)

@@ -1,12 +1,41 @@
 import Foundation
 import EdgeCareCore
 
+@MainActor protocol GeminiLiveAudioIO: AnyObject {
+    var onInput: ((Data, Float) -> Void)? { get set }
+    var onDrain: (() -> Void)? { get set }
+    var onAudibleDrain: (() -> Void)? { get set }
+    var onFailure: (() -> Void)? { get set }
+    var onCaptureFailure: (() -> Void)? { get set }
+    var queuedFrames: Int { get }
+    var isAudible: Bool { get }
+    var hasEchoCancellation: Bool { get }
+    func prepare(capture: Bool) async throws
+    func startCapture() throws
+    func enqueue(_ data: Data) throws
+    func interruptPlayback()
+    func stop()
+}
+extension GeminiLiveAudio: GeminiLiveAudioIO {}
+
+@MainActor protocol GeminiLiveConnectionIO: AnyObject {
+    func connect(_ credentials: GeminiLiveCredentials) async throws
+    func receive() async throws -> GeminiLiveEvent
+    func sendInput(_ input: GeminiLiveInput) async throws
+    func sendText(_ text: String) async throws
+    func acknowledge(_ call: GeminiLiveEvent.Call, endSession: Bool, superseded: Bool) async throws
+    func close()
+}
+extension GeminiLiveConnection: GeminiLiveConnectionIO {}
+
 @MainActor final class GeminiLiveController {
     var onEchoCancellationUnavailable: (() -> Void)?
     var onInterruption: (() -> Void)?
     private var microphone = GeminiLiveMicrophoneInput()
     private var interruptionGate = LiveInterruptionGate()
     private var interruptionLimiter = LiveInterruptionLimiter()
+    private var progress = LiveInputProgress()
+    var onLiveText: ((String, String) -> Void)?
     var onPhase: ((ConversationController.Phase) -> Void)?
     var onProfile: ((GeminiLiveProfileUpdate) -> Void)?
     var onHistory: ((VoiceConversationTurn) -> Void)?
@@ -14,8 +43,9 @@ import EdgeCareCore
     var onActivity: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onLimit: (() -> Void)?
-    private let audio = GeminiLiveAudio()
-    private var connection: GeminiLiveConnection?
+    private let audio: any GeminiLiveAudioIO
+    private let makeConnection: @MainActor () -> any GeminiLiveConnectionIO
+    private var connection: (any GeminiLiveConnectionIO)?
     private var sender: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
     private var input: AsyncStream<GeminiLiveInput>.Continuation?
@@ -40,17 +70,24 @@ import EdgeCareCore
     private var generation = 0
     private var audibleOutputUntil: Date?
 
-    init() {
+    init(audio: any GeminiLiveAudioIO = GeminiLiveAudio(),
+         makeConnection: @escaping @MainActor () -> any GeminiLiveConnectionIO = { GeminiLiveConnection() }) {
+        self.audio = audio
+        self.makeConnection = makeConnection
         audio.onInput = { [weak self] data, power in
             guard let self, !self.finished else { return }
             // Capture stays live during output, including the closing acknowledgement.
             // Voice Processing I/O handles echo; never blanket-mute the patient's mic.
-            let playing = self.speaking || self.audio.queuedFrames > 0 || self.terminal
+            let playing = self.audio.isAudible
             guard let frame = self.microphone.process(data, power: power, duringPlayback: playing) else { return }
+            if frame.activity.speechStarted {
+                self.progress.heardInput()
+                self.inputReceived = true
+            }
             if frame.activity.speechStarted,
-               self.speaking || self.audio.queuedFrames > 0 || self.terminal,
+               playing || self.terminal || self.profileReceived,
                self.interruptionGate.interrupt(awaitingServer: !self.turnFinished) {
-                if self.interruptionLimiter.shouldPause(interruptionAt: ProcessInfo.processInfo.systemUptime) {
+                if playing && self.interruptionLimiter.shouldPause(interruptionAt: ProcessInfo.processInfo.systemUptime) {
                     self.fail("conversationRepeatedInterruptions")
                     return
                 }
@@ -68,6 +105,7 @@ import EdgeCareCore
             for message in frame.messages { self.sendInput(message) }
         }
         audio.onDrain = { [weak self] in self?.drained() }
+        audio.onAudibleDrain = { [weak self] in self?.readyForReply() }
         audio.onFailure = { [weak self] in self?.fail("voiceUnavailable") }
         audio.onCaptureFailure = { [weak self] in self?.fail("microphoneUnavailable") }
     }
@@ -83,11 +121,13 @@ import EdgeCareCore
         finished = false; terminal = false; complete = false; ready = false; speaking = false
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
         interruptionLimiter = LiveInterruptionLimiter()
+        progress = LiveInputProgress()
+        if text != nil { progress.heardInput() }
         turns = 0; ids = []; cancelledCalls = []
         userText = text ?? ""; replyText = ""; replyPCM = Data()
         inputReceived = text != nil; profileReceived = false; turnFinished = false; endStarted = nil
         lastSpeech = Date(); lastResponse = Date(); audibleOutputUntil = nil
-        let connection = GeminiLiveConnection()
+        let connection = makeConnection()
         self.connection = connection
         let started = Date()
         watchdog = Task { [weak self] in
@@ -102,7 +142,7 @@ import EdgeCareCore
                     self.flushHistory(); self.saveReplay(); self.finish(); return
                 }
                 if !self.terminal, let audible = self.audibleOutputUntil,
-                   now.timeIntervalSince(audible) > 12, now.timeIntervalSince(self.lastSpeech) > 12 {
+                   !self.speaking, now.timeIntervalSince(audible) > 45, now.timeIntervalSince(self.lastSpeech) > 45 {
                     self.fail("conversationSilence"); return
                 }
                 if self.ready, self.inputReceived, self.audibleOutputUntil == nil,
@@ -110,7 +150,7 @@ import EdgeCareCore
                 if now.timeIntervalSince(started) >= Double(credentials.maxSessionSeconds) { self.fail("conversationLimit"); return }
                 if !self.ready && now.timeIntervalSince(started) > 15 { self.fail("voiceUnavailable"); return }
                 if let end = self.endStarted, now.timeIntervalSince(end) > 20 { self.fail("voiceUnavailable"); return }
-                if self.ready && !self.terminal && !self.speaking && !self.inputReceived && now.timeIntervalSince(self.lastSpeech) > 12 {
+                if self.ready && !self.terminal && !self.speaking && !self.inputReceived && now.timeIntervalSince(self.lastSpeech) > 45 {
                     self.fail("conversationSilence"); return
                 }
                 if self.ready && (self.inputReceived || self.speaking) && now.timeIntervalSince(max(self.lastResponse, self.lastSpeech)) > 30 {
@@ -166,6 +206,7 @@ import EdgeCareCore
                     if let text = content.inputTranscription?.text {
                         guard userText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
                         userText += text; inputReceived = true; lastSpeech = Date(); onActivity?()
+                        onLiveText?(userText, replyText)
                     }
                 }
                 // A turn may finish just before Google receives the interruption.
@@ -177,20 +218,23 @@ import EdgeCareCore
                         event.serverContent?.outputTranscription?.text != nil) {
                     if let tool = event.toolCall {
                         for call in tool.functionCalls where !cancelledCalls.contains(call.id) {
-                            try await connection.acknowledge(call, superseded: true)
+                            try await connection.acknowledge(call, endSession: false, superseded: true)
                         }
                     }
                     continue
                 }
                 if let tool = event.toolCall {
-                    guard tool.functionCalls.count == 1, inputReceived else { throw CoreError.invalidResponse }
+                    guard (1...6).contains(tool.functionCalls.count) else { throw CoreError.invalidResponse }
                     for call in tool.functionCalls {
                         if cancelledCalls.contains(call.id) { continue }
                         guard call.name == "record_intake_profile", !call.id.isEmpty, call.id.count <= 200 else { throw CoreError.invalidResponse }
-                        if ids.contains(call.id) { try await connection.acknowledge(call); continue }
-                        guard !profileReceived else { throw CoreError.invalidResponse }
+                        if ids.contains(call.id) { try await connection.acknowledge(call, endSession: false, superseded: false); continue }
+                        guard inputReceived, ids.count < 100 else { throw CoreError.invalidResponse }
                         try call.args.validate()
-                        ids.insert(call.id); turns += 1; profileReceived = true
+                        progress.beganResponse()
+                        ids.insert(call.id)
+                        if !profileReceived { turns += 1 }
+                        profileReceived = true
                         complete = call.args.intakeComplete
                         onProfile?(call.args); onActivity?()
                         let limited = turns >= 6 && capturing
@@ -200,18 +244,21 @@ import EdgeCareCore
                             // Do not close capture until the closing audio finishes. The
                             // patient may interrupt with a correction before that point.
                             endStarted = Date()
-                        }
-                        try await connection.acknowledge(call, endSession: limited)
+                        } else { endStarted = nil }
+                        try await connection.acknowledge(call, endSession: limited, superseded: false)
                     }
                 }
                 if let content = event.serverContent, interruptionGate.acceptsOutput {
                     if let text = content.outputTranscription?.text {
+                        progress.beganResponse()
                         guard replyText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
                         replyText += text
+                        onLiveText?(userText, replyText)
                     }
                     // A message may include several audio parts AND transcripts/tools.
                     for part in content.modelTurn?.parts ?? [] {
                         guard let inline = part.inlineData else { continue }
+                        progress.beganResponse()
                         guard inline.mimeType.hasPrefix("audio/pcm"), inline.mimeType.contains("rate=24000"),
                               let data = Data(base64Encoded: inline.data), replyPCM.count + data.count <= 2 * 1024 * 1024 else { throw CoreError.invalidResponse }
                         try audio.enqueue(data); replyPCM.append(data)
@@ -221,6 +268,7 @@ import EdgeCareCore
                         }
                     }
                     if content.turnComplete == true && content.interrupted != true {
+                        progress.beganResponse()
                         // Gemini 3.8 proactive audio may decline irrelevant input
                         // without a profile tool. That is a completed/ignored turn,
                         // not a failed provider session. Cancelled old completions
@@ -231,7 +279,10 @@ import EdgeCareCore
                         turnFinished = true
                         flushHistory()
                         saveReplay()
-                        if audio.queuedFrames == 0 { drained() }
+                        if !audio.isAudible {
+                            audio.interruptPlayback()
+                            drained()
+                        }
                     }
                 }
             }
@@ -251,6 +302,7 @@ import EdgeCareCore
         profileReceived = false; turnFinished = false; speaking = false
         terminal = false; complete = false; inputReceived = true; endStarted = nil
         audibleOutputUntil = nil; lastSpeech = Date(); lastResponse = Date()
+        progress.interrupted()
         onInterruption?(); onPhase?(.listening)
     }
 
@@ -275,14 +327,32 @@ import EdgeCareCore
         if terminal {
             finish()
         } else {
-            turnFinished = false; profileReceived = false; inputReceived = false
-            audibleOutputUntil = Date(); lastSpeech = Date(); onPhase?(.listening)
+            turnFinished = false; profileReceived = false
+            let consumedInput = progress.endedResponse()
+            if consumedInput { inputReceived = false }
+            audibleOutputUntil = Date()
+            if consumedInput { lastSpeech = Date(); onPhase?(.listening) }
+            NSLog("EdgeCare voice: reply complete; microphone ready for next answer")
         }
+    }
+    private func readyForReply() {
+        guard !finished else { return }
+        speaking = false
+        audibleOutputUntil = Date()
+        if turnFinished {
+            audio.interruptPlayback()
+            drained()
+            return
+        }
+        guard capturing, !terminal else { return }
+        if !progress.hasNewerInput { onPhase?(.listening) }
+        NSLog("EdgeCare voice: audible reply ended; capture remains active")
     }
     private func flushHistory() {
         if !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { onHistory?(VoiceConversationTurn(role: "user", text: userText)) }
         if !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { onHistory?(VoiceConversationTurn(role: "assistant", text: replyText)) }
         userText = ""; replyText = ""
+        onLiveText?("", "")
     }
     private func fail(_ notice: String) {
         guard !finished else { return }
@@ -302,5 +372,7 @@ import EdgeCareCore
         userText = ""; replyText = ""; replyPCM = Data(); ids = []; cancelledCalls = []
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
         interruptionLimiter = LiveInterruptionLimiter()
+        progress = LiveInputProgress()
+        onLiveText?("", "")
     }
 }

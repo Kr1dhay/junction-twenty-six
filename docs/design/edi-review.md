@@ -10,8 +10,9 @@
 
 The `EdgeCareDesignReview` Xcode scheme captures welcome, structured intake,
 voice-ready, accessibility-size text, and Arabic welcome screens as XCTest
-attachments. It does not grant voice consent, start audio, submit referrals, or
-clear installed data. Its launch environment uses connected mode but no patient
+attachments. It does not grant voice consent, capture microphone audio, submit
+referrals, or clear installed data. The Read aloud regression does play an Apple
+speech prompt and then stops it. Its launch environment uses connected mode but no patient
 credentials. Relaunch the installed apps with the hosted-connection script after
 the review to restore normal demo settings.
 
@@ -125,3 +126,39 @@ reviewed separately. Restored both simulators to their original light appearance
 A local self-contained HTML gallery combines the actual before/after captures
 and is shown in the Review pane. It is intentionally not committed. The committed
 scheme, tests and this review log provide the repeatable feedback loop.
+
+## Full-screen voice follow-up
+
+The embedded active-voice card is superseded by a full-screen stage with a small
+Back control, prominent state heading, 192-point microphone, and latest dialogue.
+The setup microphone is 184 points. Consent remains explicit before starting.
+Connecting uses a large Wi-Fi/progress visual rather than implying recording has
+already begun. Spoken replies expose microphone interruption; ordinary listening
+resumes automatically. Back stops resources while retaining the accepted profile.
+
+First screenshot feedback:
+
+- The large setup microphone was partly below the fold under duplicated
+  intake headings and instructions. Remove the redundant voice-mode heading and
+  progress bar, and place the longer instructions in “How voice works.”
+- The connecting capture fills the display and keeps Back at the top. Remove a
+  container-level accessibility identifier that obscured the Back button's
+  identifier in automation; preserve explicit identifiers on actionable controls.
+- Read aloud's simulator test passed after observing the synthesis `didStart`
+  callback and stopping playback. The Mac's output is unmuted. This is playback
+  startup evidence, not a measurement of intelligibility or room acoustics.
+
+51 focused unit tests pass, including actual controller orchestration against
+in-memory audio/transport doubles. They cover three consecutive question/reply
+cycles without restarting capture, repeated profile tools, and replying during
+old trailing silence. Playback ticket tests cover stale/duplicate completions.
+Screenshot review fixtures are DEBUG-only presentation states and never grant
+consent, obtain voice tokens, or start capture.
+
+Final recapture: all four light-mode tests passed (full-screen states, portrait
+accessibility, setup, and Read aloud), followed by the four-state dark-mode test.
+Reviewed the exported light/dark images and regenerated the local gallery.
+The speaking control retains a microphone icon to match its interruption hint;
+recent dialogue scrolls independently instead of growing the whole screen.
+The kiosk is restored to light appearance after review. Real acoustic
+follow-up/interruption quality remains a manual check, not a screenshot result.

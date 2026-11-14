@@ -7,6 +7,8 @@ import EdgeCareCore
     @Published private(set) var noticeKey: String?
     @Published private(set) var textOnly = false
     @Published private(set) var replyAudio: String?
+    @Published private(set) var liveUserText = ""
+    @Published private(set) var liveReplyText = ""
     private let audio = ConversationAudio()
     private let live = GeminiLiveController()
     private var task: Task<Void, Never>?
@@ -32,7 +34,9 @@ import EdgeCareCore
         live.onEchoCancellationUnavailable = { [weak self] in self?.noticeKey = "headphonesRecommended" }
         live.onInterruption = { [weak self] in self?.model?.voiceIntakeComplete = false }
         audio.onPlaybackFinished = { [weak self] in self?.playbackFinished() }
-        live.onPhase = { [weak self] in self?.phase = $0 }
+        live.onPhase = { [weak self] phase in
+            if self?.phase != phase { self?.phase = phase }
+        }
         live.onProfile = { [weak self] update in
             guard let self, self.permitted, let model = self.model else { return }
             model.language = update.detectedLanguage; model.languageChosen = true
@@ -47,6 +51,10 @@ import EdgeCareCore
         live.onActivity = { [weak self] in self?.model?.lastActivity = Date() }
         live.onFailure = { [weak self] in self?.pause(notice: $0) }
         live.onLimit = { [weak self] in self?.noticeKey = "conversationLimit" }
+        live.onLiveText = { [weak self] user, reply in
+            self?.liveUserText = user
+            self?.liveReplyText = reply
+        }
     }
 
     func start(model: IntakeViewModel, app: AppSession) {

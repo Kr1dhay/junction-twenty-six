@@ -193,6 +193,7 @@ public struct IntakeView: View {
     @Bindable private var app: AppSession
     private let kiosk: Bool
     @StateObject private var speech = SpeechController()
+    @State private var voiceScreenPresented = false
     @State private var idleSoon = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -216,7 +217,7 @@ public struct IntakeView: View {
                         languagePicker
                     }
                 }
-                if model.step > 0 && model.step < 7 {
+                if model.step > 0 && model.step < 7 && !(model.step == 1 && model.inputMode == "voice") {
                     ProgressView(value: Double(model.step), total: 7).tint(EdgeCareStyle.magenta)
                         .accessibilityLabel("\(model.step) / 7")
                 }
@@ -255,6 +256,7 @@ public struct IntakeView: View {
             }
         }
         .onChange(of: model.step) { _, _ in model.lastActivity = Date(); speech.stop() }
+        .onChange(of: model.inputMode) { _, _ in speech.stop() }
         .onChange(of: model.letterText) { _, _ in model.lastActivity = Date(); model.discardPreparedUpdate() }
         .onChange(of: model.clinicalProfile) { _, _ in model.discardPreparedUpdate() }
         .onChange(of: model.lesionPresent) { _, _ in model.discardPreparedUpdate() }
@@ -281,7 +283,7 @@ public struct IntakeView: View {
         }
         .onDisappear {
             speech.stop(); model.passcode = ""; model.confirmation = ""
-            if model.isUpdatingReferral { model.reset() }
+            if !voiceScreenPresented && model.isUpdatingReferral { model.reset() }
         }
     }
     @ViewBuilder private var content: some View {
@@ -303,14 +305,16 @@ public struct IntakeView: View {
                 Label(t("updatingExisting"), systemImage: "pencil.circle").font(.headline)
                 Text(editing.original.id).font(.caption.monospaced()).textSelection(.enabled)
             }
-            guideHeading(t("concernTitle"), pose: .listening)
-            Text(t("anonymous")).foregroundStyle(.secondary)
+            if model.inputMode != "voice" {
+                guideHeading(t("concernTitle"), pose: .listening)
+                Text(t("anonymous")).foregroundStyle(.secondary)
+            }
             Picker(t("inputMode"), selection: $model.inputMode) {
                 Text(t("form")).tag("form")
                 Text(t("conversation")).tag("voice")
             }.pickerStyle(.segmented)
             if model.inputMode == "voice" {
-                ConversationView(model: model, app: app)
+                ConversationView(model: model, app: app, showingConversation: $voiceScreenPresented)
             } else {
                 StructuredConcernForm(model: model)
                 if model.languageDetected { Text(t("detected")).font(.footnote) }
@@ -480,7 +484,11 @@ public struct IntakeView: View {
     private func speechControls(prompt: String, input: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button { speech.speak(prompt, language: model.language) } label: { Label(t("read"), systemImage: "speaker.wave.2") }
+                Button {
+                    model.lastActivity = Date()
+                    if speech.speaking { speech.stop() } else { speech.speak(prompt, language: model.language) }
+                } label: { Label(t(speech.speaking ? "stopReading" : "read"), systemImage: speech.speaking ? "stop.circle.fill" : "speaker.wave.2") }
+                    .accessibilityIdentifier("readAloud")
                 if input {
                     Button {
                         if speech.listening { speech.stop() }
@@ -488,7 +496,8 @@ public struct IntakeView: View {
                     } label: { Label(t(speech.listening ? "stop" : "speak"), systemImage: speech.listening ? "stop.circle" : "mic") }
                 }
             }.buttonStyle(.edgeCareSecondary)
-            Text(t(speech.unavailable ? "speechUnavailable" : "speechPrivacy")).font(.caption).foregroundStyle(.secondary)
+            Text(t(speech.unavailable ? "speechUnavailable" : speech.playbackStarted ? "readingAloud" : speech.speaking ? "preparingReadAloud" : "speechPrivacy"))
+                .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("readAloudStatus")
         }
     }
     private var safetySources: some View {

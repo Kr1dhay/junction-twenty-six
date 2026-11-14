@@ -34,6 +34,31 @@ The accepted profile remains available. An explicit **Interrupt reply** control
 stops playback while keeping live capture available as a fallback for noisy
 speaker routes; it is not a substitute for verifying hands-free barge-in.
 
+### Full-screen conversation and follow-up answers
+
+After consent, the large microphone opens a full-screen conversation. Connecting,
+Speak now, processing, and speaking have distinct headings. Back stops the
+session without discarding the accepted profile. The latest dialogue includes
+streaming transcription; the full history and profile remain on the intake page.
+The microphone button interrupts a spoken reply, pauses while listening, and
+restarts a paused session only when tapped. No extra tap is needed after a question.
+
+Audible PCM is tracked separately from queued silent PCM and remote generation.
+Once the spoken question drains, ordinary listening sensitivity resumes even if
+Gemini has not yet sent its turn-complete marker. Trailing silence is discarded
+after completion. Generation-tagged playback tickets reject stale or duplicate
+completions. Input revisions prevent old-response cleanup from consuming a newer
+answer. Multiple validated profile updates in a response are acknowledged, not
+treated as a provider failure. Superseding silent old output does not count toward
+the acoustic feedback-loop limiter. Silent listening now waits 45 seconds.
+
+The structured form's Read aloud explicitly activates an Apple spoken-audio
+playback session, exposes preparation/started/unavailable states, and offers Stop
+reading. A five-second startup deadline catches unavailable synthesis assets.
+Unsupported languages never silently fall back to an unrelated language. Switching
+to voice stops Apple speech first; idle voice controllers no longer deactivate an
+audio session they do not own.
+
 The model calls `record_intake_profile` after patient input, with the entire English profile and an explicit stop signal. The client validates the payload, computes completeness from concern, symptoms and duration, and acknowledges the tool before the short spoken response. Synchronous tool acknowledgement is supported by this model and ensures a tool-only update cannot silently replace the spoken response. On completion/early stop, capture and the connection close after the closing drains, unless interrupted first. A terminal response that keeps emitting quiet PCM is bounded after 2.5 seconds of played silence following audible speech; a 20-second closing deadline, six-answer cap and five-minute session cap provide further bounds. A stopped incomplete profile stays incomplete.
 
 Pause, consent withdrawal, leaving the intake screen, backgrounding, interruptions and connectivity/provider errors clear streaming resources. A lost session is not silently restarted: the patient explicitly starts again, with the accepted English profile retained. Direct Google audio processing is disclosed in all five UI languages. Native microphone, speaker, echo cancellation and actual latency still need the Mac/device checks below.

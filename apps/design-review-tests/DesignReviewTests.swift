@@ -3,12 +3,13 @@ import XCTest
 /// Repeatable visual review without starting cloud voice, granting consent,
 /// enrolling a patient, or clearing installed app data.
 @MainActor final class DesignReviewTests: XCTestCase {
-    private func launch(largeText: Bool = false, portrait: Bool = false) -> XCUIApplication {
+    private func launch(largeText: Bool = false, portrait: Bool = false, voicePhase: String? = nil) -> XCUIApplication {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = portrait ? .portrait : .landscapeLeft
         let app = XCUIApplication()
         app.launchEnvironment["EDGECARE_MODE"] = "connected"
         app.launchEnvironment["EDGECARE_BASE_URL"] = "https://edgecare-lissankoiralas-projects.vercel.app"
+        if let voicePhase { app.launchEnvironment["EDGECARE_VOICE_REVIEW_PHASE"] = voicePhase }
         if largeText {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         }
@@ -35,6 +36,52 @@ import XCTest
         capture("03-voice-ready")
         // Consent stays off. This review never captures/transmits microphone audio.
         XCTAssertFalse(app.buttons["Start conversation"].isEnabled)
+        XCTAssertGreaterThanOrEqual(app.buttons["Start conversation"].frame.height, 200)
+    }
+
+    func testFullScreenVoiceStatesWithoutCapturingAudio() {
+        for (phase, title) in [("connecting", "Connecting to Edi…"), ("listening", "Speak now"),
+                               ("processing", "One moment…"), ("speaking", "Edi is speaking")] {
+            let app = launch(voicePhase: phase)
+            app.buttons["Create a new referral"].tap()
+            app.segmentedControls.buttons["Voice conversation"].tap()
+            XCTAssertTrue(app.staticTexts["voiceStageTitle"].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.staticTexts["voiceStageTitle"].label, title)
+            capture("07-fullscreen-" + phase)
+            XCTAssertTrue(app.buttons["voiceBack"].isHittable)
+            XCTAssertFalse(app.segmentedControls.buttons["Voice conversation"].isHittable)
+            if phase == "listening" || phase == "speaking" {
+                XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.height, 200)
+            }
+            app.buttons["voiceBack"].tap()
+            XCTAssertTrue(app.buttons["Start conversation"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["Start conversation"].isEnabled, "Review must not grant microphone consent")
+            app.terminate()
+        }
+    }
+
+    func testReadAloudStartsPlayback() {
+        let app = launch()
+        app.buttons["Create a new referral"].tap()
+        let read = app.buttons["readAloud"]
+        XCTAssertTrue(read.waitForExistence(timeout: 5))
+        read.tap()
+        XCTAssertTrue(app.staticTexts["Reading aloud…"].waitForExistence(timeout: 8),
+                      "Require synthesis didStart, not merely a queued utterance")
+        capture("08-read-aloud")
+        read.tap()
+        XCTAssertTrue(app.buttons["Read aloud"].waitForExistence(timeout: 5))
+    }
+
+    func testFullScreenVoiceAtAccessibilitySizeInPortrait() {
+        let app = launch(largeText: true, portrait: true, voicePhase: "listening")
+        app.buttons["Create a new referral"].tap()
+        app.segmentedControls.buttons["Voice conversation"].tap()
+        XCTAssertTrue(app.staticTexts["voiceStageTitle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["voiceBack"].isHittable)
+        capture("09-fullscreen-accessibility-portrait")
+        app.buttons["voiceBack"].tap()
+        XCTAssertTrue(app.buttons["Start conversation"].waitForExistence(timeout: 5))
     }
 
     func testWelcomeAtAccessibilityTextSize() {

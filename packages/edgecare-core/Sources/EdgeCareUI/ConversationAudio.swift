@@ -121,11 +121,12 @@ import EdgeCareCore
         generation += 1
         meterTask?.cancel(); meterTask = nil
         #if os(iOS)
+        let heldSession = recorder != nil || player != nil
         recorder?.delegate = nil; player?.delegate = nil
         recorder?.stop(); player?.stop(); recorder = nil; player = nil
         if let file { try? FileManager.default.removeItem(at: file) }
         file = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if heldSession { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         #endif
     }
 

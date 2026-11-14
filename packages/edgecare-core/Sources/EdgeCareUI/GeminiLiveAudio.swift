@@ -36,12 +36,14 @@ private final class LivePCMConverter: @unchecked Sendable {
 @MainActor final class GeminiLiveAudio {
     var onInput: ((Data, Float) -> Void)?
     var onDrain: (() -> Void)?
+    var onAudibleDrain: (() -> Void)?
     var onFailure: (() -> Void)?
     var onCaptureFailure: (() -> Void)?
     private var generation = 0
-    private var playbackGeneration = 0
+    private var playback = LivePlaybackProgress()
     private(set) var hasEchoCancellation = false
-    private(set) var queuedFrames = 0
+    var queuedFrames: Int { playback.queuedFrames }
+    var isAudible: Bool { playback.isAudible }
     #if os(iOS)
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
@@ -180,16 +182,18 @@ private final class LivePCMConverter: @unchecked Sendable {
         guard let player, let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count / 2)),
               let samples = buffer.floatChannelData?[0] else { throw CoreError.notConfigured }
-        let frames = data.count / 2, current = generation, playback = playbackGeneration
+        let frames = data.count / 2, current = generation
         buffer.frameLength = AVAudioFrameCount(frames)
         data.withUnsafeBytes { bytes in
             for i in 0..<frames { samples[i] = Float(Int16(littleEndian: bytes.loadUnaligned(fromByteOffset: i * 2, as: Int16.self))) / 32768 }
         }
-        queuedFrames += frames
+        let chunk = playback.enqueue(frames: frames, audible: (PCM16Audio.power(data) ?? -90) > -50)
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.generation == current, self.playbackGeneration == playback else { return }
-                self.queuedFrames = max(0, self.queuedFrames - frames)
+                guard let self, self.generation == current else { return }
+                let wasAudible = self.playback.isAudible
+                guard self.playback.played(chunk) else { return }
+                if wasAudible && !self.playback.isAudible { self.onAudibleDrain?() }
                 if self.queuedFrames == 0 { self.onDrain?() }
             }
         }
@@ -200,8 +204,7 @@ private final class LivePCMConverter: @unchecked Sendable {
     }
 
     func interruptPlayback() {
-        playbackGeneration += 1
-        queuedFrames = 0
+        playback.reset()
         #if os(iOS)
         player?.stop()
         // Never stop/reinstall the input tap here: doing so drops the beginning of
@@ -210,12 +213,13 @@ private final class LivePCMConverter: @unchecked Sendable {
     }
 
     func stop() {
-        generation += 1; playbackGeneration += 1; queuedFrames = 0; hasEchoCancellation = false
+        generation += 1; playback.reset(); hasEchoCancellation = false
         #if os(iOS)
+        let heldSession = engine != nil
         wantsEngineRunning = false
         stopCapture(); interruption = nil; routeChange = nil; configurationChange = nil
         player?.stop(); engine?.stop(); player = nil; engine = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if heldSession { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         #endif
     }
     #if os(iOS)
