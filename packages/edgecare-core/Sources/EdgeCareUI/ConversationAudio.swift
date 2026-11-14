@@ -12,10 +12,7 @@ import EdgeCareCore
     var onSilence: (() -> Void)?
     var onFailure: (() -> Void)?
     var onPlaybackFinished: (() -> Void)?
-    var onCalibrating: (() -> Void)?
-    var onCalibrated: ((Bool) -> Void)?
-    private var calibration = MicrophoneCalibration()
-    func resetCalibration() { calibration = MicrophoneCalibration() }
+    var onListening: (() -> Void)?
     var onActivity: (() -> Void)?
     private var generation = 0
     private var meterTask: Task<Void, Never>?
@@ -31,13 +28,13 @@ import EdgeCareCore
     override init() {
         super.init()
         #if os(iOS)
-        interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { [weak self] notification in
+        interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { @Sendable [weak self] notification in
             guard let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   type == AVAudioSession.InterruptionType.began.rawValue else { return }
             let occurred = ContinuousClock.now
             Task { @MainActor [weak self] in self?.interrupted(at: occurred) }
         }
-        routeChange = NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink { [weak self] notification in
+        routeChange = NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink { @Sendable [weak self] notification in
             guard let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
             let occurred = ContinuousClock.now
@@ -51,7 +48,7 @@ import EdgeCareCore
         let current = generation
         #if os(iOS)
         let allowed = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+            AVAudioApplication.requestRecordPermission { @Sendable in continuation.resume(returning: $0) }
         }
         guard !Task.isCancelled, current == generation else { return false }
         guard allowed else { return false }
@@ -67,11 +64,10 @@ import EdgeCareCore
             guard recording.record() else { throw CoreError.notConfigured }
             recorder = recording
             activeSince = ContinuousClock.now
-            if !calibration.isComplete { onCalibrating?() }
-            else { onCalibrated?(calibration.isNoisy) }
+            onListening?()
             meterTask = Task { [weak self] in
-                var detector: SpeechTurnDetector?
-                var readyAt: TimeInterval = 0
+                var detector = AdaptiveSpeechActivity()
+                var hasSpeech = false
                 var lastSample: TimeInterval = 0
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
@@ -79,24 +75,15 @@ import EdgeCareCore
                     guard recorder.isRecording else { self.fail(); return }
                     recorder.updateMeters()
                     let power = recorder.averagePower(forChannel: 0), time = recorder.currentTime
-                    if !self.calibration.isComplete {
-                        self.calibration.sample(power: power, duration: time - lastSample)
-                        lastSample = time
-                        if self.calibration.isComplete { readyAt = time; self.onCalibrated?(self.calibration.isNoisy) }
-                        continue
-                    }
-                    if detector == nil { detector = SpeechTurnDetector(threshold: self.calibration.speechThreshold) }
-                    guard var currentDetector = detector else { return }
-                    let result = currentDetector.sample(power: power, elapsed: time - readyAt)
-                    detector = currentDetector
-                    if currentDetector.hasSpeech && power >= self.calibration.speechThreshold { self.onActivity?() }
-                    switch result {
-                    case .listening: continue
-                    case .speechEnded:
+                    let result = detector.sample(power: power, duration: min(0.25, time - lastSample))
+                    lastSample = time
+                    if result.speechDetected { hasSpeech = true; self.onActivity?() }
+                    if result.speechEnded || (hasSpeech && time >= 30) {
                         guard let data = self.takeRecording() else { self.fail(); return }
                         self.onTurn?(data)
                         return
-                    case .noSpeech:
+                    }
+                    if !hasSpeech && time >= 12 {
                         self.clear()
                         self.onSilence?()
                         return

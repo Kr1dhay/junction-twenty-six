@@ -15,7 +15,7 @@ public struct GeminiLiveCredentials: Decodable, Sendable {
     public func request() throws -> URLRequest {
         let endpoint = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained"
         guard websocketURL == endpoint, model == "gemini-3.8-live", !token.isEmpty, token.utf8.count <= 16384,
-              !token.contains("\r"), !token.contains("\n"), setupJSON.utf8.count <= 256 * 1024,
+              !token.unicodeScalars.contains(where: { $0.value == 13 || $0.value == 10 }), setupJSON.utf8.count <= 256 * 1024,
               (1...300).contains(maxSessionSeconds), let url = URL(string: endpoint) else { throw CoreError.invalidResponse }
         var request = URLRequest(url: url)
         // Header authentication keeps the temporary token out of URL logs.
@@ -63,11 +63,53 @@ public struct GeminiLiveEvent: Decodable, Sendable {
         public let args: GeminiLiveProfileUpdate
     }
     public struct ToolCall: Decodable, Sendable { public let functionCalls: [Call] }
+    public struct ToolCancellation: Decodable, Sendable { public let ids: [String] }
     public let setupComplete: Empty?
     public let serverContent: Content?
     public let toolCall: ToolCall?
+    public let toolCallCancellation: ToolCancellation?
     public let goAway: Empty?
     public let error: Empty?
+}
+
+/// Ordered microphone messages for Gemini's hybrid VAD. End-of-utterance must
+/// follow the final PCM chunk on the same sender, not race it in a separate Task.
+public enum GeminiLiveInput: Sendable, Equatable {
+    case audio(Data)
+    case endUtterance
+
+    func wireObject() throws -> [String: Any] {
+        switch self {
+        case .audio(let data):
+            guard !data.isEmpty, data.count <= 32 * 1024, data.count.isMultiple(of: 2) else { throw CoreError.invalidResponse }
+            return ["realtimeInput": ["audio": ["data": data.base64EncodedString(), "mimeType": "audio/pcm;rate=16000"]]]
+        case .endUtterance:
+            return ["realtimeInput": ["audioStreamEnd": true]]
+        }
+    }
+}
+
+/// Gemini-only hybrid VAD: preserve onset PCM, finalize one utterance on a pause,
+/// and keep capturing locally without streaming idle room noise as a new turn.
+public struct GeminiLiveMicrophoneInput: Sendable {
+    public struct Frame: Sendable {
+        public let activity: AdaptiveSpeechActivity.Sample
+        public let messages: [GeminiLiveInput]
+    }
+    private var microphone = AdaptiveSpeechInput()
+    private var transmitting = false
+    public init() {}
+
+    public mutating func process(_ data: Data, power: Float, duringPlayback: Bool = false) -> Frame? {
+        guard let frame = microphone.process(data, power: power, duringPlayback: duringPlayback) else { return nil }
+        if frame.activity.speechStarted { transmitting = true }
+        var messages: [GeminiLiveInput] = transmitting ? [.audio(frame.audio)] : []
+        if frame.activity.speechEnded, transmitting {
+            transmitting = false
+            messages.append(.endUtterance)
+        }
+        return Frame(activity: frame.activity, messages: messages)
+    }
 }
 
 /// Direct PCM streaming to Google with an ephemeral credential, bypassing HTTP turn buffering.
@@ -95,18 +137,19 @@ public struct GeminiLiveEvent: Decodable, Sendable {
         return try JSONDecoder().decode(GeminiLiveEvent.self, from: data)
     }
     public func sendAudio(_ data: Data) async throws {
-        guard !data.isEmpty, data.count <= 32 * 1024, data.count.isMultiple(of: 2) else { throw CoreError.invalidResponse }
-        try await send(["realtimeInput": ["audio": ["data": data.base64EncodedString(), "mimeType": "audio/pcm;rate=16000"]]])
+        try await sendInput(.audio(data))
     }
+    public func sendInput(_ input: GeminiLiveInput) async throws { try await send(input.wireObject()) }
     public func sendText(_ text: String) async throws {
         guard !text.isEmpty, text.count <= 4000 else { throw CoreError.invalidResponse }
         try await send(["realtimeInput": ["text": text]])
     }
-    public func endAudio() async throws { try await send(["realtimeInput": ["audioStreamEnd": true]]) }
-    public func acknowledge(_ call: GeminiLiveEvent.Call, endSession: Bool = false) async throws {
+    public func endAudio() async throws { try await sendInput(.endUtterance) }
+    public func acknowledge(_ call: GeminiLiveEvent.Call, endSession: Bool = false, superseded: Bool = false) async throws {
         try await send(["toolResponse": ["functionResponses": [["id": call.id, "name": call.name,
-            "response": ["saved_in_session": true, "intake_complete": call.args.intakeComplete,
-                "conversation_ended": call.args.conversationEnded || endSession]]]]])
+            "response": ["saved_in_session": !superseded, "superseded_by_interruption": superseded,
+                "intake_complete": !superseded && call.args.intakeComplete,
+                "conversation_ended": !superseded && (call.args.conversationEnded || endSession)]]]]])
     }
     private func send(_ object: [String: Any]) async throws {
         guard let socket else { throw CoreError.notConfigured }

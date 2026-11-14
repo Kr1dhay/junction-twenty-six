@@ -2,8 +2,10 @@ import Foundation
 import EdgeCareCore
 
 @MainActor final class GeminiLiveController {
-    var onCalibrated: ((Bool) -> Void)?
-    private var microphone = CalibratedMicrophoneInput()
+    var onEchoCancellationUnavailable: (() -> Void)?
+    var onInterruption: (() -> Void)?
+    private var microphone = GeminiLiveMicrophoneInput()
+    private var interruptionGate = LiveInterruptionGate()
     var onPhase: ((ConversationController.Phase) -> Void)?
     var onProfile: ((GeminiLiveProfileUpdate) -> Void)?
     var onHistory: ((VoiceConversationTurn) -> Void)?
@@ -15,7 +17,7 @@ import EdgeCareCore
     private var connection: GeminiLiveConnection?
     private var sender: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
-    private var input: AsyncStream<Data>.Continuation?
+    private var input: AsyncStream<GeminiLiveInput>.Continuation?
     private var finished = true
     private var terminal = false
     private var complete = false
@@ -25,6 +27,7 @@ import EdgeCareCore
     private var capturing = false
     private var turns = 0
     private var ids: Set<String> = []
+    private var cancelledCalls: Set<String> = []
     private var userText = ""
     private var replyText = ""
     private var replyPCM = Data()
@@ -38,20 +41,30 @@ import EdgeCareCore
 
     init() {
         audio.onInput = { [weak self] data, power in
-            guard let self, !self.finished, !self.terminal else { return }
-            let echoTail = self.audibleOutputUntil.map { Date() < $0.addingTimeInterval(0.35) } ?? false
-            guard let frame = self.microphone.process(data, power: power, suppress: echoTail) else { return }
-            if frame.calibrationCompleted {
-                self.lastSpeech = Date(); self.onCalibrated?(self.microphone.calibration.isNoisy)
-                self.onPhase?(.listening)
+            guard let self, !self.finished else { return }
+            // Capture stays live during output, including the closing acknowledgement.
+            // Voice Processing I/O handles echo; never blanket-mute the patient's mic.
+            let playing = self.speaking || self.audio.queuedFrames > 0 || self.terminal
+            guard let frame = self.microphone.process(data, power: power, duringPlayback: playing) else { return }
+            if frame.activity.speechStarted,
+               self.speaking || self.audio.queuedFrames > 0 || self.terminal,
+               self.interruptionGate.interrupt(awaitingServer: !self.turnFinished) {
+                self.interruptReply()
+                NSLog("EdgeCare voice: local barge-in; playback stopped")
             }
-            if frame.speechDetected {
+            if frame.activity.speechDetected {
                 self.lastSpeech = Date(); self.inputReceived = true; self.onActivity?()
+                if !self.speaking { self.onPhase?(.listening) }
             }
-            if let result = self.input?.yield(frame.audio), case .dropped = result { self.fail("voiceUnavailable") }
+            if frame.activity.speechEnded, !self.speaking, !self.terminal {
+                self.onPhase?(.processing)
+                NSLog("EdgeCare voice: end of utterance detected")
+            }
+            for message in frame.messages { self.sendInput(message) }
         }
         audio.onDrain = { [weak self] in self?.drained() }
         audio.onFailure = { [weak self] in self?.fail("voiceUnavailable") }
+        audio.onCaptureFailure = { [weak self] in self?.fail("microphoneUnavailable") }
     }
 
     func prepare(capture: Bool) async throws {
@@ -63,8 +76,9 @@ import EdgeCareCore
     func run(credentials: GeminiLiveCredentials, text: String? = nil) async throws {
         let current = generation
         finished = false; terminal = false; complete = false; ready = false; speaking = false
-        microphone = CalibratedMicrophoneInput()
-        turns = 0; ids = []; userText = text ?? ""; replyText = ""; replyPCM = Data()
+        microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
+        turns = 0; ids = []; cancelledCalls = []
+        userText = text ?? ""; replyText = ""; replyPCM = Data()
         inputReceived = text != nil; profileReceived = false; turnFinished = false; endStarted = nil
         lastSpeech = Date(); lastResponse = Date(); audibleOutputUntil = nil
         let connection = GeminiLiveConnection()
@@ -100,6 +114,7 @@ import EdgeCareCore
         }
         do {
             try await connection.connect(credentials)
+            if capturing && !audio.hasEchoCancellation { onEchoCancellationUnavailable?() }
             while !finished, !Task.isCancelled, generation == current {
                 let event = try await connection.receive()
                 guard !finished, generation == current, !Task.isCancelled else { return }
@@ -109,36 +124,62 @@ import EdgeCareCore
                     guard !ready else { throw CoreError.invalidResponse }
                     ready = true; lastSpeech = Date()
                     if capturing {
-                        let pipe = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(12))
+                        let pipe = AsyncStream<GeminiLiveInput>.makeStream(bufferingPolicy: .bufferingOldest(12))
                         input = pipe.continuation
                         sender = Task { [weak self] in
                             do {
-                                for await chunk in pipe.stream {
-                                    guard !Task.isCancelled, let self, !self.finished, !self.terminal else { return }
-                                    try await connection.sendAudio(chunk)
+                                for await message in pipe.stream {
+                                    guard !Task.isCancelled, let self, !self.finished else { return }
+                                    try await connection.sendInput(message)
+                                    if case .endUtterance = message { NSLog("EdgeCare voice: Gemini input finalized after pause") }
                                 }
-                            } catch { if !Task.isCancelled { self?.fail("voiceUnavailable") } }
+                            } catch {
+                                if !Task.isCancelled {
+                                    let code = error as NSError
+                                    NSLog("EdgeCare voice: audio send failed domain=%@ code=%ld", code.domain, code.code)
+                                    self?.fail("voiceUnavailable")
+                                }
+                            }
                         }
-                        try audio.startCapture()
-                        onPhase?(.calibrating)
+                        do { try audio.startCapture() }
+                        catch { fail("microphoneUnavailable"); return }
+                        onPhase?(.listening)
                     } else if let text { try await connection.sendText(text); onPhase?(.processing) }
                 }
                 // Transcripts and interruptions can arrive in the same message as a
                 // tool call. Apply them first; Google does not guarantee their order.
+                if let cancellation = event.toolCallCancellation {
+                    guard cancellation.ids.count <= 100, cancelledCalls.count + cancellation.ids.count <= 200 else { throw CoreError.invalidResponse }
+                    cancelledCalls.formUnion(cancellation.ids)
+                }
                 if let content = event.serverContent {
                     if content.interrupted == true {
-                        audio.interruptPlayback(); flushHistory(); replyPCM = Data()
-                        profileReceived = false; turnFinished = false; speaking = false
-                        audibleOutputUntil = nil
+                        if !interruptionGate.awaitingAcknowledgment { interruptReply() }
+                        NSLog("EdgeCare voice: server interruption acknowledged")
                     }
                     if let text = content.inputTranscription?.text {
                         guard userText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
                         userText += text; inputReceived = true; lastSpeech = Date(); onActivity?()
                     }
                 }
+                // A turn may finish just before Google receives the interruption.
+                // In that race there is no `interrupted` event. Drop the remainder
+                // of the old turn and release the gate for the patient's next reply.
+                if interruptionGate.discardOutput(interrupted: event.serverContent?.interrupted == true,
+                    turnComplete: event.serverContent?.turnComplete == true,
+                    hasNewOutput: event.toolCall != nil || event.serverContent?.modelTurn != nil ||
+                        event.serverContent?.outputTranscription?.text != nil) {
+                    if let tool = event.toolCall {
+                        for call in tool.functionCalls where !cancelledCalls.contains(call.id) {
+                            try await connection.acknowledge(call, superseded: true)
+                        }
+                    }
+                    continue
+                }
                 if let tool = event.toolCall {
                     guard tool.functionCalls.count == 1, inputReceived else { throw CoreError.invalidResponse }
                     for call in tool.functionCalls {
+                        if cancelledCalls.contains(call.id) { continue }
                         guard call.name == "record_intake_profile", !call.id.isEmpty, call.id.count <= 200 else { throw CoreError.invalidResponse }
                         if ids.contains(call.id) { try await connection.acknowledge(call); continue }
                         guard !profileReceived else { throw CoreError.invalidResponse }
@@ -150,13 +191,14 @@ import EdgeCareCore
                         terminal = call.args.conversationEnded || limited || !capturing
                         if limited { onLimit?() }
                         if terminal {
-                            endStarted = Date(); audio.stopCapture(); input?.finish(); input = nil
+                            // Do not close capture until the closing audio finishes. The
+                            // patient may interrupt with a correction before that point.
+                            endStarted = Date()
                         }
                         try await connection.acknowledge(call, endSession: limited)
-                        if terminal && capturing { try await connection.endAudio() }
                     }
                 }
-                if let content = event.serverContent {
+                if let content = event.serverContent, interruptionGate.acceptsOutput {
                     if let text = content.outputTranscription?.text {
                         guard replyText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
                         replyText += text
@@ -173,7 +215,13 @@ import EdgeCareCore
                         }
                     }
                     if content.turnComplete == true && content.interrupted != true {
-                        guard !inputReceived || profileReceived else { throw CoreError.invalidResponse }
+                        // Gemini 3.8 proactive audio may decline irrelevant input
+                        // without a profile tool. That is a completed/ignored turn,
+                        // not a failed provider session. Cancelled old completions
+                        // have already been discarded by the interruption gate.
+                        if inputReceived && !profileReceived {
+                            NSLog("EdgeCare voice: Gemini completed without profile; retaining accepted profile")
+                        }
                         turnFinished = true
                         flushHistory()
                         saveReplay()
@@ -182,8 +230,26 @@ import EdgeCareCore
                 }
             }
         } catch {
-            if !finished, generation == current, !Task.isCancelled { stop(); throw error }
+            if !finished, generation == current, !Task.isCancelled {
+                let code = error as NSError
+                NSLog("EdgeCare voice: session failed domain=%@ code=%ld input=%d profile=%d", code.domain, code.code,
+                      inputReceived ? 1 : 0, profileReceived ? 1 : 0)
+                stop(); throw error
+            }
         }
+    }
+
+    private func interruptReply() {
+        audio.interruptPlayback()
+        flushHistory(); replyPCM = Data()
+        profileReceived = false; turnFinished = false; speaking = false
+        terminal = false; complete = false; inputReceived = true; endStarted = nil
+        audibleOutputUntil = nil; lastSpeech = Date(); lastResponse = Date()
+        onInterruption?(); onPhase?(.listening)
+    }
+
+    private func sendInput(_ message: GeminiLiveInput) {
+        if let result = input?.yield(message), case .dropped = result { fail("voiceUnavailable") }
     }
 
     private func drained() {
@@ -201,7 +267,11 @@ import EdgeCareCore
         if !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { onHistory?(VoiceConversationTurn(role: "assistant", text: replyText)) }
         userText = ""; replyText = ""
     }
-    private func fail(_ notice: String) { guard !finished else { return }; stop(); onFailure?(notice) }
+    private func fail(_ notice: String) {
+        guard !finished else { return }
+        NSLog("EdgeCare voice: stopping reason=%@", notice)
+        stop(); onFailure?(notice)
+    }
     private func finish() { let completed = complete; stop(); onPhase?(completed ? .complete : .paused) }
     private func saveReplay() {
         if let data = try? PCM16Audio.wave(replyPCM) { onReplay?(data.base64EncodedString()) }
@@ -212,6 +282,7 @@ import EdgeCareCore
         watchdog?.cancel(); watchdog = nil; sender?.cancel(); sender = nil
         input?.finish(); input = nil
         audio.stop(); connection?.close(); connection = nil
-        userText = ""; replyText = ""; replyPCM = Data(); ids = []; microphone = CalibratedMicrophoneInput()
+        userText = ""; replyText = ""; replyPCM = Data(); ids = []; cancelledCalls = []
+        microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
     }
 }

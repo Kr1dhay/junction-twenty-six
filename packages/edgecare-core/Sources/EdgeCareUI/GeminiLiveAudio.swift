@@ -37,7 +37,10 @@ private final class LivePCMConverter: @unchecked Sendable {
     var onInput: ((Data, Float) -> Void)?
     var onDrain: (() -> Void)?
     var onFailure: (() -> Void)?
+    var onCaptureFailure: (() -> Void)?
     private var generation = 0
+    private var playbackGeneration = 0
+    private(set) var hasEchoCancellation = false
     private(set) var queuedFrames = 0
     #if os(iOS)
     private var engine: AVAudioEngine?
@@ -45,6 +48,14 @@ private final class LivePCMConverter: @unchecked Sendable {
     private var capturing = false
     private var interruption: AnyCancellable?
     private var routeChange: AnyCancellable?
+    private var configurationChange: AnyCancellable?
+    private var captureWatchdog: Task<Void, Never>?
+    private var inputGeneration = 0
+    private var wantsEngineRunning = false
+    private var lastInput = ContinuousClock.now
+    private var lastInputLog = ContinuousClock.now
+    private var inputBuffers = 0
+    private var inputPeak: Float = -100
     private var activeSince = ContinuousClock.now
     #endif
 
@@ -54,7 +65,7 @@ private final class LivePCMConverter: @unchecked Sendable {
         #if os(iOS)
         if capture {
             let allowed = await withCheckedContinuation { continuation in
-                AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+                AVAudioApplication.requestRecordPermission { @Sendable in continuation.resume(returning: $0) }
             }
             guard allowed else { throw CoreError.notConfigured }
         }
@@ -69,28 +80,38 @@ private final class LivePCMConverter: @unchecked Sendable {
             do { try engine.inputNode.setVoiceProcessingEnabled(true) }
             catch {
                 // Some simulator/input routes have no Voice Processing I/O unit.
-                // The calibrated input still mutes playback echo; use a fresh engine
-                // rather than making microphone capture depend on this optional unit.
+                // Keep duplex capture working on unsupported simulator routes.
+                // Headphones are recommended when hardware echo cancellation is absent.
                 engine = AVAudioEngine()
             }
+            hasEchoCancellation = engine.inputNode.isVoiceProcessingEnabled
         }
         self.engine = engine; self.player = player
         engine.attach(player)
         let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
         engine.connect(player, to: engine.mainMixerNode, format: output)
-        engine.prepare(); try engine.start()
+        // Do not start input I/O before the microphone tap exists. On simulator
+        // routes the format can change during token provisioning and stop the
+        // engine, leaving a later-installed tap attached to a stopped engine.
+        engine.prepare()
         activeSince = ContinuousClock.now
-        interruption = NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink { [weak self] event in
-            guard let type = event.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  type == AVAudioSession.InterruptionType.began.rawValue else { return }
-            let occurred = ContinuousClock.now
-            Task { @MainActor [weak self] in self?.interrupted(at: occurred) }
+        configurationChange = AudioNotificationObserver.observe(.AVAudioEngineConfigurationChange, object: engine) { [weak self] _ in
+            guard let self, self.generation == current else { return }
+            self.recoverConfigurationChange()
         }
-        routeChange = NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink { [weak self] event in
-            guard let reason = event.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
-                  reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
-            let occurred = ContinuousClock.now
-            Task { @MainActor [weak self] in self?.interrupted(at: occurred) }
+        interruption = AudioNotificationObserver.observe(AVAudioSession.interruptionNotification,
+            codeKey: AVAudioSessionInterruptionTypeKey) { [weak self] event in
+            guard event.code == AVAudioSession.InterruptionType.began.rawValue else { return }
+            self?.interrupted(at: event.occurred)
+        }
+        routeChange = AudioNotificationObserver.observe(AVAudioSession.routeChangeNotification,
+            codeKey: AVAudioSessionRouteChangeReasonKey) { [weak self] event in
+            guard event.code == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+            self?.interrupted(at: event.occurred)
+        }
+        if !capture {
+            wantsEngineRunning = true
+            try engine.start()
         }
         #else
         throw CoreError.notConfigured
@@ -102,10 +123,16 @@ private final class LivePCMConverter: @unchecked Sendable {
         guard let engine, !capturing else { throw CoreError.notConfigured }
         let input = engine.inputNode, format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw CoreError.notConfigured }
-        let converter = try LivePCMConverter(input: format), current = generation
+        let converter = try LivePCMConverter(input: format), current = generation, capture = inputGeneration
         let deliver: @Sendable (Data, Float) -> Void = { [weak self] data, power in
             Task { @MainActor [weak self] in
-                guard let self, self.generation == current, self.capturing else { return }
+                guard let self, self.generation == current, self.inputGeneration == capture, self.capturing else { return }
+                self.lastInput = .now
+                self.inputBuffers += 1; self.inputPeak = max(self.inputPeak, power)
+                if self.lastInputLog.duration(to: .now) >= .seconds(1) {
+                    NSLog("EdgeCare voice: microphone buffers=%d peak_db=%.1f", self.inputBuffers, self.inputPeak)
+                    self.inputBuffers = 0; self.inputPeak = -100; self.lastInputLog = .now
+                }
                 self.onInput?(data, power)
             }
         }
@@ -113,6 +140,26 @@ private final class LivePCMConverter: @unchecked Sendable {
             if let (data, power) = converter.convert(buffer) { deliver(data, power) }
         }
         capturing = true
+        wantsEngineRunning = true
+        lastInput = .now; lastInputLog = .now; inputBuffers = 0; inputPeak = -100
+        do {
+            if !engine.isRunning { engine.prepare(); try engine.start() }
+            NSLog("EdgeCare voice: capture engine running=%d echo_cancellation=%d", engine.isRunning ? 1 : 0, hasEchoCancellation ? 1 : 0)
+        } catch {
+            stopCapture()
+            throw error
+        }
+        captureWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, self.generation == current, self.inputGeneration == capture, self.capturing else { return }
+                if self.lastInput.duration(to: .now) > .seconds(3) {
+                    NSLog("EdgeCare voice: microphone stream stalled")
+                    self.onCaptureFailure?()
+                    return
+                }
+            }
+        }
         #else
         throw CoreError.notConfigured
         #endif
@@ -120,6 +167,8 @@ private final class LivePCMConverter: @unchecked Sendable {
 
     func stopCapture() {
         #if os(iOS)
+        inputGeneration += 1
+        captureWatchdog?.cancel(); captureWatchdog = nil
         if capturing { engine?.inputNode.removeTap(onBus: 0); capturing = false }
         #endif
     }
@@ -131,15 +180,15 @@ private final class LivePCMConverter: @unchecked Sendable {
         guard let player, let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count / 2)),
               let samples = buffer.floatChannelData?[0] else { throw CoreError.notConfigured }
-        let frames = data.count / 2, current = generation
+        let frames = data.count / 2, current = generation, playback = playbackGeneration
         buffer.frameLength = AVAudioFrameCount(frames)
         data.withUnsafeBytes { bytes in
             for i in 0..<frames { samples[i] = Float(Int16(littleEndian: bytes.loadUnaligned(fromByteOffset: i * 2, as: Int16.self))) / 32768 }
         }
         queuedFrames += frames
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.generation == current else { return }
+                guard let self, self.generation == current, self.playbackGeneration == playback else { return }
                 self.queuedFrames = max(0, self.queuedFrames - frames)
                 if self.queuedFrames == 0 { self.onDrain?() }
             }
@@ -151,26 +200,43 @@ private final class LivePCMConverter: @unchecked Sendable {
     }
 
     func interruptPlayback() {
-        generation += 1
+        playbackGeneration += 1
         queuedFrames = 0
         #if os(iOS)
         player?.stop()
-        // Capture tap generation must be renewed after interruption, without reopening permission.
-        let resumeCapture = capturing
-        stopCapture()
-        if resumeCapture { do { try startCapture() } catch { onFailure?() } }
+        // Never stop/reinstall the input tap here: doing so drops the beginning of
+        // the patient's interruption and invalidates in-flight capture callbacks.
         #endif
     }
 
     func stop() {
-        generation += 1; queuedFrames = 0
+        generation += 1; playbackGeneration += 1; queuedFrames = 0; hasEchoCancellation = false
         #if os(iOS)
-        stopCapture(); interruption = nil; routeChange = nil
+        wantsEngineRunning = false
+        stopCapture(); interruption = nil; routeChange = nil; configurationChange = nil
         player?.stop(); engine?.stop(); player = nil; engine = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
     }
     #if os(iOS)
+    private func recoverConfigurationChange() {
+        guard wantsEngineRunning, let engine, !engine.isRunning else { return }
+        let wasCapturing = capturing
+        NSLog("EdgeCare voice: audio configuration stopped engine; recovering")
+        do {
+            if capturing {
+                // The input format may have changed, so recreate only the tap and
+                // converter. Normal barge-in never restarts microphone capture.
+                stopCapture()
+                try startCapture()
+            } else {
+                engine.prepare(); try engine.start()
+            }
+            if queuedFrames > 0, let player, !player.isPlaying { player.play() }
+        } catch {
+            if wasCapturing { onCaptureFailure?() } else { onFailure?() }
+        }
+    }
     private func interrupted(at occurred: ContinuousClock.Instant) {
         if occurred >= activeSince, engine != nil { onFailure?() }
     }
