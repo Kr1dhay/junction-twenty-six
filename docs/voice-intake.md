@@ -28,6 +28,12 @@ Capture remains active during spoken replies, including closing acknowledgements
 
 Microphone permission/input failures have a separate message from provider failures. This level-based gate is not a speech recognizer or speaker identification system: sufficiently loud/changing noise can resemble speech, and quiet voices may fall below threshold. Echo cancellation and actual room-noise performance must be checked on the target hardware. Use headphones when a simulator route cannot cancel its own speaker output.
 
+If four local interruptions occur within eight seconds, the session pauses with
+translated feedback-loop guidance instead of repeatedly restarting its reply.
+The accepted profile remains available. An explicit **Interrupt reply** control
+stops playback while keeping live capture available as a fallback for noisy
+speaker routes; it is not a substitute for verifying hands-free barge-in.
+
 The model calls `record_intake_profile` after patient input, with the entire English profile and an explicit stop signal. The client validates the payload, computes completeness from concern, symptoms and duration, and acknowledges the tool before the short spoken response. Synchronous tool acknowledgement is supported by this model and ensures a tool-only update cannot silently replace the spoken response. On completion/early stop, capture and the connection close after the closing drains, unless interrupted first. A terminal response that keeps emitting quiet PCM is bounded after 2.5 seconds of played silence following audible speech; a 20-second closing deadline, six-answer cap and five-minute session cap provide further bounds. A stopped incomplete profile stays incomplete.
 
 Pause, consent withdrawal, leaving the intake screen, backgrounding, interruptions and connectivity/provider errors clear streaming resources. A lost session is not silently restarted: the patient explicitly starts again, with the accepted English profile retained. Direct Google audio processing is disclosed in all five UI languages. Native microphone, speaker, echo cancellation and actual latency still need the Mac/device checks below.

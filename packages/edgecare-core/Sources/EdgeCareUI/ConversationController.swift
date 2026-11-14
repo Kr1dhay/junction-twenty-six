@@ -20,7 +20,7 @@ import EdgeCareCore
         case .ready: "conversationReady"
         case .connecting: "conversationConnecting"
         case .listening: "conversationListening"
-        case .processing: "saving"
+        case .processing: "conversationProcessing"
         case .speaking: "conversationSpeaking"
         case .paused: "conversationPaused"
         case .complete: "conversationComplete"
@@ -95,6 +95,11 @@ import EdgeCareCore
         stop(); self.model = model
         phase = .speaking
         if !audio.play(replyAudio) { pause(notice: "voiceUnavailable") }
+    }
+
+    func interrupt() {
+        guard phase == .speaking else { return }
+        if !live.interrupt() { stop() }
     }
 
     func stop(clearReply: Bool = false) {

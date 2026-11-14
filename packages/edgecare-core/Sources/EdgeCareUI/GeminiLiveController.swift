@@ -6,6 +6,7 @@ import EdgeCareCore
     var onInterruption: (() -> Void)?
     private var microphone = GeminiLiveMicrophoneInput()
     private var interruptionGate = LiveInterruptionGate()
+    private var interruptionLimiter = LiveInterruptionLimiter()
     var onPhase: ((ConversationController.Phase) -> Void)?
     var onProfile: ((GeminiLiveProfileUpdate) -> Void)?
     var onHistory: ((VoiceConversationTurn) -> Void)?
@@ -49,6 +50,10 @@ import EdgeCareCore
             if frame.activity.speechStarted,
                self.speaking || self.audio.queuedFrames > 0 || self.terminal,
                self.interruptionGate.interrupt(awaitingServer: !self.turnFinished) {
+                if self.interruptionLimiter.shouldPause(interruptionAt: ProcessInfo.processInfo.systemUptime) {
+                    self.fail("conversationRepeatedInterruptions")
+                    return
+                }
                 self.interruptReply()
                 NSLog("EdgeCare voice: local barge-in; playback stopped")
             }
@@ -77,6 +82,7 @@ import EdgeCareCore
         let current = generation
         finished = false; terminal = false; complete = false; ready = false; speaking = false
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
+        interruptionLimiter = LiveInterruptionLimiter()
         turns = 0; ids = []; cancelledCalls = []
         userText = text ?? ""; replyText = ""; replyPCM = Data()
         inputReceived = text != nil; profileReceived = false; turnFinished = false; endStarted = nil
@@ -248,6 +254,17 @@ import EdgeCareCore
         onInterruption?(); onPhase?(.listening)
     }
 
+    /// Explicit fallback for speaker routes where crowd/echo defeats acoustic
+    /// onset detection. Capture and the Gemini connection remain alive.
+    func interrupt() -> Bool {
+        guard !finished, capturing else { return false }
+        if interruptionGate.interrupt(awaitingServer: !turnFinished) {
+            interruptReply()
+            NSLog("EdgeCare voice: reply interrupted by user control")
+        }
+        return true
+    }
+
     private func sendInput(_ message: GeminiLiveInput) {
         if let result = input?.yield(message), case .dropped = result { fail("voiceUnavailable") }
     }
@@ -284,5 +301,6 @@ import EdgeCareCore
         audio.stop(); connection?.close(); connection = nil
         userText = ""; replyText = ""; replyPCM = Data(); ids = []; cancelledCalls = []
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
+        interruptionLimiter = LiveInterruptionLimiter()
     }
 }

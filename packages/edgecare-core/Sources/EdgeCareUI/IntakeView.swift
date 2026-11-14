@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import Combine
 import EdgeCareCore
 
 @MainActor @Observable public final class IntakeViewModel {
@@ -194,6 +195,8 @@ public struct IntakeView: View {
     @StateObject private var speech = SpeechController()
     @State private var idleSoon = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     public init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
         self.title = title; self.model = model; self.app = app; self.kiosk = kiosk
@@ -202,13 +205,16 @@ public struct IntakeView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    SessionBanner(connected: app.connected, language: model.language)
-                    Spacer()
-                    Picker(t("language"), selection: Binding(get: { model.language }, set: { model.languageChosen = true; model.language = $0 })) {
-                        ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
-                        if !Copy.languages.contains(model.language) { Text(model.language.uppercased()).tag(model.language) }
-                    }.pickerStyle(.menu).accessibilityLabel(t("language"))
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        SessionBanner(connected: app.connected, language: model.language).fixedSize()
+                        Spacer()
+                        languagePicker.fixedSize()
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        SessionBanner(connected: app.connected, language: model.language)
+                        languagePicker
+                    }
                 }
                 if model.step > 0 && model.step < 7 {
                     ProgressView(value: Double(model.step), total: 7).tint(EdgeCareStyle.magenta)
@@ -283,13 +289,13 @@ public struct IntakeView: View {
         case -1:
             ExistingReferralLookupView(model: model, app: app)
         case 0:
-            if kiosk {
+            if kiosk && !dynamicTypeSize.isAccessibilitySize && horizontalSizeClass != .compact {
                 HStack(alignment: .center, spacing: 40) {
                     EdiView(pose: .welcome).frame(maxWidth: 320, maxHeight: 340)
                     welcomeIntro
                 }
             } else {
-                EdiView(pose: .welcome).frame(width: 140, height: 142)
+                EdiView(pose: .welcome).frame(width: 112, height: 114)
                 welcomeIntro
             }
         case 1:
@@ -387,6 +393,12 @@ public struct IntakeView: View {
         }
     }
     private func heading(_ text: String) -> some View { Text(text).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
+    private var languagePicker: some View {
+        Picker(t("language"), selection: Binding(get: { model.language }, set: { model.languageChosen = true; model.language = $0 })) {
+            ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
+            if !Copy.languages.contains(model.language) { Text(model.language.uppercased()).tag(model.language) }
+        }.pickerStyle(.menu).accessibilityLabel(t("language"))
+    }
     /// Heading with Edi beside it, as on the patient intake study.
     private func guideHeading(_ text: String, pose: EdiView.Pose) -> some View {
         HStack(alignment: .center, spacing: 16) {
@@ -404,21 +416,35 @@ public struct IntakeView: View {
             Text(t("anonymous")).font(.title3.weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
             Text(t("privacy")).foregroundStyle(.secondary)
             Text(t("language")).font(.headline).foregroundStyle(EdgeCareStyle.graphite)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 12)], alignment: .leading, spacing: 12) {
-                ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in
-                    let selected = model.language.lowercased().hasPrefix(code)
-                    Button { model.languageChosen = true; model.language = code } label: { Text(name).frame(maxWidth: .infinity) }
-                        .buttonStyle(LanguageChipStyle(selected: selected))
-                        .accessibilityAddTraits(selected ? .isSelected : [])
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 12) { welcomeLanguages }
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 12)], alignment: .leading, spacing: 12) {
+                    welcomeLanguages
                 }
             }
             primary(t(kiosk ? "createNew" : "start")) { model.step = 1 }
             if kiosk {
-                HStack(spacing: 12) {
-                    Button(t("updateExisting")) { model.step = -1 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
-                    Button(t("bookAppointment")) { model.step = 8 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
+                if dynamicTypeSize.isAccessibilitySize || horizontalSizeClass == .compact {
+                    VStack(spacing: 12) { secondaryWelcomeActions }
+                } else {
+                    HStack(spacing: 12) { secondaryWelcomeActions }
                 }
             }
+        }
+    }
+    @ViewBuilder private var secondaryWelcomeActions: some View {
+        Button(t("updateExisting")) { model.step = -1 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
+        Button(t("bookAppointment")) { model.step = 8 }.buttonStyle(EdgeCareSecondaryButtonStyle(fullWidth: true))
+    }
+    @ViewBuilder private var welcomeLanguages: some View {
+        ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in
+            let selected = model.language.lowercased().hasPrefix(code)
+            Button { model.languageChosen = true; model.language = code } label: {
+                Text(name).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(LanguageChipStyle(selected: selected))
+            .accessibilityAddTraits(selected ? .isSelected : [])
         }
     }
     private var emergencyNotice: some View {
@@ -443,7 +469,7 @@ public struct IntakeView: View {
                     HStack {
                         Text(t(answer)); Spacer()
                         Image(systemName: chosen ? "checkmark.circle.fill" : "chevron.forward")
-                            .foregroundStyle(chosen ? EdgeCareStyle.mulberry : Color.secondary)
+                            .foregroundStyle(chosen ? EdgeCareStyle.accent : Color.secondary)
                     }
                 }.buttonStyle(EdgeCareRowButtonStyle(selected: chosen))
                     .accessibilityAddTraits(chosen ? .isSelected : [])

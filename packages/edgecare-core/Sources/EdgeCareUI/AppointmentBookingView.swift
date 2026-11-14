@@ -48,7 +48,7 @@ import EdgeCareCore
             } else {
                 if let record { Text(record.id).font(.caption.monospaced()) }
                 if let booking {
-                    Label(t("appointmentConfirmed"), systemImage: "checkmark.circle.fill").font(.title2).foregroundStyle(EdgeCareStyle.mulberry)
+                    Label(t("appointmentConfirmed"), systemImage: "checkmark.circle.fill").font(.title2).foregroundStyle(EdgeCareStyle.accent)
                     Text(displayDate(booking.startDate)).font(.title3.weight(.semibold))
                     Text(t("appointmentZone"))
                     Text(t("demoClinic"))
@@ -74,7 +74,7 @@ import EdgeCareCore
                             HStack {
                                 Text(displayDate(slot.startDate))
                                 Spacer()
-                                if selected == slot.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(EdgeCareStyle.mulberry) }
+                                if selected == slot.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(EdgeCareStyle.accent) }
                             }
                         }.buttonStyle(EdgeCareRowButtonStyle(selected: selected == slot.id)).accessibilityAddTraits(selected == slot.id ? .isSelected : [])
                     }
@@ -91,7 +91,7 @@ import EdgeCareCore
             }.buttonStyle(.edgeCareSecondary)
         }
         .disabled(busy)
-        .tint(EdgeCareStyle.mulberry)
+        .tint(EdgeCareStyle.accent)
         .task {
             if let saved = model.record, let proof = model.appointmentVerification {
                 record = saved; verification = proof; refresh()

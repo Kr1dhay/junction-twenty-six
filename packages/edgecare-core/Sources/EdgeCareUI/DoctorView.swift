@@ -24,13 +24,12 @@ public struct DoctorRootView: View {
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
-                        EdgeCareWordmark(size: 24)
-                        Text("Confirm a referral").font(.title.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+                        EdgeCareWordmark(size: 20)
+                        Text("Confirm a referral").font(.title2.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+                        SessionBanner(connected: app.connected)
+                        Text("Anonymous clinical demo. Signature matching is an experimental aid; use clinician judgement. No identity is collected.")
+                            .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }.padding(.vertical, 4)
-                }.listRowBackground(Color.clear)
-                Section {
-                    SessionBanner(connected: app.connected)
-                    Text("Anonymous clinical demo. Signature matching is an experimental aid; use clinician judgement. No identity is collected.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Find a patient referral") {
                     Picker("Find using", selection: $lookupMethod) {
@@ -105,7 +104,7 @@ public struct DoctorRootView: View {
                 Task { await app.refresh() }
             }
             .toolbar { ToolbarItem { Menu("Demo controls") { Toggle("Simulate offline", isOn: $app.simulateOffline) } } }
-        }.tint(EdgeCareStyle.mulberry).preferredColorScheme(.light)
+        }.tint(EdgeCareStyle.accent)
         .onChange(of: lookupMethod) { _, _ in cancelLookup(); lookupMessage = nil }
         .onChange(of: lookupPIN) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }
         .onChange(of: lookupStrokes) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }

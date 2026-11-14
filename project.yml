@@ -81,3 +81,21 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.patient
         TARGETED_DEVICE_FAMILY: "1"
+  EdgeCareDesignReviewTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [apps/design-review-tests]
+    dependencies:
+      - target: EdgeCareKiosk
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.design-review
+        TEST_TARGET_NAME: EdgeCareKiosk
+schemes:
+  EdgeCareDesignReview:
+    build:
+      targets:
+        EdgeCareKiosk: all
+        EdgeCareDesignReviewTests: [test]
+    test:
+      targets: [EdgeCareDesignReviewTests]

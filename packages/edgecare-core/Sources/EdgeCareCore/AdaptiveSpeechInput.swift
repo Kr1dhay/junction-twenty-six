@@ -131,3 +131,17 @@ public struct LiveInterruptionGate: Sendable {
         return discard
     }
 }
+
+/// A noisy/echoing speaker route must not repeatedly restart spoken replies.
+/// This is a safety bound, not an assertion that we can identify the speaker.
+public struct LiveInterruptionLimiter: Sendable {
+    private var interruptions: [TimeInterval] = []
+    public init() {}
+
+    public mutating func shouldPause(interruptionAt time: TimeInterval) -> Bool {
+        guard time.isFinite, time >= 0 else { return false }
+        interruptions.removeAll { time - $0 > 8 || $0 > time }
+        interruptions.append(time)
+        return interruptions.count >= 4
+    }
+}

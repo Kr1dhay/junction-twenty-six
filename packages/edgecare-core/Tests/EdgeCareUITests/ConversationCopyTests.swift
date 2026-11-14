@@ -31,4 +31,14 @@ final class ConversationCopyTests: XCTestCase {
             XCTAssertFalse(disclosure.contains("ElevenLabs"))
         }
     }
+
+    func testConversationControlsAndFeedbackRecoveryHaveEveryTranslation() {
+        for key in ["conversationProcessing", "interruptReply", "conversationRepeatedInterruptions", "useTextInstead", "notYetProvided"] {
+            XCTAssertEqual(Copy.strings[key]?.count, Copy.languages.count, key)
+            for language in Copy.languages {
+                XCTAssertFalse(Copy.text(key, language).isEmpty)
+                XCTAssertNotEqual(Copy.text(key, language), key)
+            }
+        }
+    }
 }

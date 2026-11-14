@@ -1,4 +1,9 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // Edge-Care visual language ("Edi" avatar proposal, concept 01).
 // Mulberry #830051 · Magenta #d0006f · Warm white #f7f2eb, graphite text, light gray canvas.
@@ -11,23 +16,43 @@ extension Color {
                   blue: Double(hex & 0xFF) / 255,
                   opacity: opacity)
     }
+
+    init(edgeLight light: UInt32, dark: UInt32) {
+        #if canImport(UIKit)
+        self.init(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255,
+                           blue: Double(hex & 255) / 255, alpha: 1)
+        })
+        #elseif canImport(AppKit)
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255,
+                           blue: Double(hex & 255) / 255, alpha: 1)
+        })
+        #else
+        self.init(edgeHex: light)
+        #endif
+    }
 }
 
 public enum EdgeCareStyle {
     public static let mulberry = Color(edgeHex: 0x830051)
     public static let magenta = Color(edgeHex: 0xD0006F)
     public static let warmWhite = Color(edgeHex: 0xF7F2EB)
+    /// Brand-colored text and controls that stay readable in either appearance.
+    public static let accent = Color(edgeLight: 0x830051, dark: 0xF0A9D1)
     /// Headline and body text.
-    public static let graphite = Color(edgeHex: 0x2B2630)
+    public static let graphite = Color(edgeLight: 0x2B2630, dark: 0xF4EFF5)
     /// Very light gray page canvas.
-    public static let canvas = Color(edgeHex: 0xF6F5F7)
+    public static let canvas = Color(edgeLight: 0xF6F5F7, dark: 0x17131A)
     /// Cards, inputs and device "paper".
-    public static let card = Color.white
+    public static let card = Color(edgeLight: 0xFFFFFF, dark: 0x221D26)
     /// Option rows and quiet surfaces.
-    public static let surface = Color(edgeHex: 0xF3F1F4)
+    public static let surface = Color(edgeLight: 0xF3F1F4, dark: 0x2C2530)
     /// Soft mulberry tint for selection, pills and the background glow.
-    public static let blush = Color(edgeHex: 0xFBEAF2)
-    public static let hairline = Color(edgeHex: 0xE6E1E8)
+    public static let blush = Color(edgeLight: 0xFBEAF2, dark: 0x392638)
+    public static let hairline = Color(edgeLight: 0xE6E1E8, dark: 0x4A3C4C)
     static let faceInk = Color(edgeHex: 0x3A1F24)
     static let mulberryDeep = Color(edgeHex: 0x67003F)
     static let mulberryLight = Color(edgeHex: 0xA3086A)
@@ -50,14 +75,15 @@ public struct EdiView: View {
             let wave = moving ? sin(timeline.date.timeIntervalSinceReferenceDate * 2.4) : 0
             Canvas { context, size in EdiView.draw(in: &context, size: size, pose: pose, wave: wave) }
         }
-        .aspectRatio(130.0 / 132.0, contentMode: .fit)
+        .aspectRatio(146.0 / 132.0, contentMode: .fit)
         .accessibilityHidden(true)
     }
 
-    /// Geometry lives in a 130×132 box; the body itself spans x 0…100, y 0…120 after the inner offset.
+    /// The 146×132 viewport includes the entire waving arm at every animation
+    /// angle; the original 130-wide viewport visibly clipped its fingertips.
     static func draw(in context: inout GraphicsContext, size: CGSize, pose: Pose, wave: Double) {
-        let scale = min(size.width / 130, size.height / 132)
-        context.translateBy(x: (size.width - 130 * scale) / 2, y: (size.height - 132 * scale) / 2)
+        let scale = min(size.width / 146, size.height / 132)
+        context.translateBy(x: (size.width - 146 * scale) / 2, y: (size.height - 132 * scale) / 2)
         context.scaleBy(x: scale, y: scale)
         context.translateBy(x: 15, y: 4)
 
@@ -124,7 +150,7 @@ public struct EdgeCareWordmark: View {
     public var body: some View {
         HStack(spacing: size * 0.4) {
             if showsEdi { EdiView(pose: .listening, animated: false).frame(width: size * 1.7, height: size * 1.7) }
-            Text("Edge-Care").font(.system(size: size, weight: .bold)).foregroundStyle(EdgeCareStyle.mulberry)
+            Text("Edge-Care").font(.system(size: size, weight: .bold)).foregroundStyle(EdgeCareStyle.accent)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Edge-Care")
@@ -149,7 +175,7 @@ public struct EdgeCareStatusPill: View {
     let text: String
     public init(_ text: String) { self.text = text }
     public var body: some View {
-        Text(text).font(.caption.weight(.semibold)).foregroundStyle(EdgeCareStyle.mulberry)
+        Text(text).font(.caption.weight(.semibold)).foregroundStyle(EdgeCareStyle.accent)
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Capsule().fill(EdgeCareStyle.blush))
     }
@@ -164,6 +190,7 @@ public struct EdgeCarePrimaryButtonStyle: ButtonStyle {
     private struct StyledBody: View {
         let configuration: ButtonStyleConfiguration
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         var body: some View {
             configuration.label
                 .font(.headline).foregroundStyle(.white).multilineTextAlignment(.center)
@@ -172,8 +199,8 @@ public struct EdgeCarePrimaryButtonStyle: ButtonStyle {
                 .background(Capsule().fill(EdgeCareStyle.mulberry))
                 .contentShape(Capsule())
                 .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.4)
-                .scaleEffect(configuration.isPressed ? 0.98 : 1)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
 }
@@ -188,7 +215,7 @@ public struct EdgeCareSecondaryButtonStyle: ButtonStyle {
         let fullWidth: Bool
         @Environment(\.isEnabled) private var isEnabled
         var body: some View {
-            let color = configuration.role == .destructive ? Color.red : EdgeCareStyle.mulberry
+            let color = configuration.role == .destructive ? Color.red : EdgeCareStyle.accent
             configuration.label
                 .font(.body.weight(.semibold)).foregroundStyle(color).multilineTextAlignment(.center)
                 .padding(.horizontal, 20).padding(.vertical, 10)
@@ -217,7 +244,7 @@ public struct EdgeCareRowButtonStyle: ButtonStyle {
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
                 .background(shape.fill(selected || configuration.isPressed ? EdgeCareStyle.blush : EdgeCareStyle.surface))
-                .overlay(shape.strokeBorder(selected ? EdgeCareStyle.mulberry.opacity(0.6) : .clear, lineWidth: 1.5))
+                .overlay(shape.strokeBorder(selected ? EdgeCareStyle.accent.opacity(0.6) : .clear, lineWidth: 1.5))
                 .contentShape(shape)
                 .opacity(isEnabled ? 1 : 0.5)
         }
@@ -231,11 +258,11 @@ struct LanguageChipStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
-            .foregroundStyle(selected ? Color.white : EdgeCareStyle.mulberry)
+            .foregroundStyle(selected ? Color.white : EdgeCareStyle.accent)
             .padding(.horizontal, 16)
             .frame(minHeight: 48)
             .background(Capsule().fill(selected ? EdgeCareStyle.magenta : (configuration.isPressed ? EdgeCareStyle.blush : EdgeCareStyle.card)))
-            .overlay(Capsule().strokeBorder(selected ? Color.clear : EdgeCareStyle.mulberry.opacity(0.85), lineWidth: 1.5))
+            .overlay(Capsule().strokeBorder(selected ? Color.clear : EdgeCareStyle.accent.opacity(0.85), lineWidth: 1.5))
             .contentShape(Capsule())
     }
 }
@@ -260,7 +287,7 @@ public struct EdgeCareCheckRowToggleStyle: ToggleStyle {
                 Spacer(minLength: 12)
                 Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(configuration.isOn ? EdgeCareStyle.mulberry : Color.secondary)
+                    .foregroundStyle(configuration.isOn ? EdgeCareStyle.accent : Color.secondary)
             }
         }
         .buttonStyle(EdgeCareRowButtonStyle(selected: configuration.isOn))
