@@ -25,3 +25,6 @@ test-results/
 demo/remotion/public/voiceover.mp3
 
 .vercel/
+
+# Local Python env for scripts/skin-cnn
+.venv-skin/

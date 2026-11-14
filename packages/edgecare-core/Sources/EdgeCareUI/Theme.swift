@@ -56,6 +56,11 @@ public enum EdgeCareStyle {
     static let faceInk = Color(edgeHex: 0x3A1F24)
     static let mulberryDeep = Color(edgeHex: 0x67003F)
     static let mulberryLight = Color(edgeHex: 0xA3086A)
+    /// Skin risk bands: green / amber / orange / red, readable in both appearances.
+    static let riskLow = Color(edgeLight: 0x1E7B47, dark: 0x5FD08E)
+    static let riskModerate = Color(edgeLight: 0x9A6700, dark: 0xF2C14E)
+    static let riskHigh = Color(edgeLight: 0xC2410C, dark: 0xFB923C)
+    static let riskVeryHigh = Color(edgeLight: 0xB91C1C, dark: 0xF87171)
 }
 
 // MARK: - Edi

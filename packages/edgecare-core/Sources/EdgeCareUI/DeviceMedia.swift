@@ -192,6 +192,8 @@ struct EvidenceCapture: View {
     let language: String
     @Binding var letterText: String
     @Binding var lesionPresent: Bool
+    @Binding var lesionImage: Data?
+    @Binding var photoConsent: Bool
     @State private var selection: PhotosPickerItem?
     @State private var isLetter = true
     @State private var camera = false
@@ -225,8 +227,21 @@ struct EvidenceCapture: View {
                 }
             }
             if lesionPresent {
-                Label(Copy.text("photoAdded", language), systemImage: "checkmark.circle")
-                Button(Copy.text("remove", language), role: .destructive) { lesionPresent = false }
+                HStack(alignment: .center, spacing: 16) {
+                    if let lesionImage, let preview = UIImage(data: lesionImage) {
+                        Image(uiImage: preview).resizable().scaledToFill().frame(width: 96, height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .accessibilityLabel(Copy.text("photoAdded", language))
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(Copy.text("photoAdded", language), systemImage: "checkmark.circle")
+                        Button(Copy.text("remove", language), role: .destructive) { lesionPresent = false; lesionImage = nil; photoConsent = false }
+                    }
+                }
+                if lesionImage != nil {
+                    Toggle(Copy.text("photoConsent", language), isOn: $photoConsent).padding(.vertical, 4)
+                        .accessibilityIdentifier("skinPhotoConsent")
+                }
             }
             if !isLetter || lesionPresent {
                 Text(Copy.text("vision", language)).font(.subheadline).foregroundStyle(.secondary)
@@ -252,7 +267,19 @@ struct EvidenceCapture: View {
                 guard !Task.isCancelled else { return }
                 if text.isEmpty { message = Copy.text("error", language) } else { letterText = String(text.prefix(6000)); message = nil }
             } catch { message = Copy.text("error", language) }
-        } else { guard !Task.isCancelled else { return }; lesionPresent = true; message = nil }
+        } else {
+            // Downscale in memory for the risk estimate; nothing is written to disk.
+            let resized = Self.downscaledJPEG(data)
+            guard !Task.isCancelled else { return }
+            lesionImage = resized; lesionPresent = true; message = resized == nil ? Copy.text("error", language) : nil
+        }
+    }
+    static func downscaledJPEG(_ data: Data, maxSide: CGFloat = 1024) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let scale = min(1, maxSide / max(image.size.width, image.size.height))
+        let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat.default(); format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.8) { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
 }
 #else
@@ -260,6 +287,8 @@ struct EvidenceCapture: View {
     let language: String
     @Binding var letterText: String
     @Binding var lesionPresent: Bool
+    @Binding var lesionImage: Data?
+    @Binding var photoConsent: Bool
     var body: some View {
         VStack(alignment: .leading) {
             Text(Copy.text("optional", language))

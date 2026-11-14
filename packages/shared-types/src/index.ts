@@ -96,6 +96,40 @@ export interface VoiceTurnResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Skin assessment: kiosk photo -> first-line CNN -> Gemini triage-priority score.
+// Demo only; never a diagnosis. The image is processed in memory and never stored.
+// ---------------------------------------------------------------------------
+export const skinAssessmentRequestSchema = z.object({
+  consent: z.literal(true),
+  language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/),
+  image_base64: base64.max(8 * 1024 * 1024),
+  image_mime: z.enum(["image/jpeg", "image/png", "image/heic", "image/webp"]),
+  profile: clinicalProfileSchema.optional(),
+  answers: z.record(z.string().max(64), z.enum(["yes", "no", "unsure"]).or(z.string().max(200))).optional(),
+  concern: z.string().max(4000).optional(),
+}).strict();
+export type SkinAssessmentRequest = z.infer<typeof skinAssessmentRequestSchema>;
+export type SkinRiskBand = "low" | "moderate" | "high" | "very_high";
+export interface SkinAssessmentResponse {
+  /** 0-100 triage priority for seeing a professional. Demo estimate, not a cancer probability or diagnosis. */
+  risk_score: number;
+  band: SkinRiskBand;
+  key_factors: string[];
+  /** In the patient's language when produced by Gemini; English fallback text otherwise. */
+  patient_message: string;
+  clinician_note: string;
+  cnn: {
+    probabilities: Record<string, number>;
+    top: string;
+    top_probability: number;
+    malignant_probability: number;
+    source: "cnn" | "simulated";
+    model: string;
+  };
+  scoring_source: "gemini" | "fallback";
+}
+
+// ---------------------------------------------------------------------------
 // Consultations: a translated, recorded doctor visit linked to one referral.
 // Append-only; never overwrites the patient's original triage. No audio is stored.
 // ---------------------------------------------------------------------------

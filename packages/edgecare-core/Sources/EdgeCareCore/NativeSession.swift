@@ -10,6 +10,7 @@ public actor NativeSession {
     public nonisolated let configuration: AppConfiguration
     private let appointmentAPI: (any AppointmentAPI)?
     private let voiceClient: ConsentGatedVoiceClient?
+    private let skinClient: SkinAssessmentClient?
     public nonisolated let consultationAPI: any ConsultationAPI
     public nonisolated let consultationOutbox: ConsultationOutbox?
     private var online: Bool
@@ -18,9 +19,9 @@ public actor NativeSession {
     public init(configuration: AppConfiguration, wallet: ReferralWallet, outbox: ReferralOutbox,
                 chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil,
                 consultationAPI: any ConsultationAPI = MockConsultationAPI(), consultationOutbox: ConsultationOutbox? = nil,
-                appointmentAPI: (any AppointmentAPI)? = nil) {
+                appointmentAPI: (any AppointmentAPI)? = nil, skinClient: SkinAssessmentClient? = nil) {
         self.configuration = configuration; self.wallet = wallet; self.outbox = outbox
-        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient
+        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient; self.skinClient = skinClient
         self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
@@ -92,10 +93,11 @@ public actor NativeSession {
         let api = RESTReferralAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         let voice = ConsentGatedVoiceClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: issuerToken ?? bearerToken)
         let consultations = RESTConsultationAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken)
+        let skin = SkinAssessmentClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: issuerToken ?? bearerToken)
         let consultationOutbox = try ConsultationOutbox(storeURL: storageDirectory.appendingPathComponent("connected-consultations.enc"), key: key)
         let appointments = RESTAppointmentAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice,
-                             consultationAPI: consultations, consultationOutbox: consultationOutbox, appointmentAPI: appointments)
+                             consultationAPI: consultations, consultationOutbox: consultationOutbox, appointmentAPI: appointments, skinClient: skin)
     }
     /// The edit session was unlocked with the patient's code and signature on this device.
     public func appointmentVerification(for authorization: ReferralEditSession) -> PatientVerification {
@@ -125,6 +127,13 @@ public actor NativeSession {
         try await service.cancel(referralID: record.id, appointmentID: appointmentID)
     }
     public func isOnline() -> Bool { online }
+    /// Photo is uploaded only with explicit consent, only in connected mode, and only to our backend.
+    public func assessSkin(_ request: SkinAssessmentRequest) async throws -> SkinAssessmentResult {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard request.consent else { throw CoreError.consentRequired }
+        guard let skinClient else { throw CoreError.providerUnavailable }
+        return try await skinClient.assess(request)
+    }
     public func voiceTurn(audio: Data? = nil, mimeType: String = "audio/mp4", text: String? = nil,
                           language: String? = nil, profile: ClinicalProfile = ClinicalProfile(),
                           history: [VoiceConversationTurn] = [], consent: Bool) async throws -> VoiceTurnResponse {

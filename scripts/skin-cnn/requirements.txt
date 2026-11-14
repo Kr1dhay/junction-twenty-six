@@ -1,0 +1,9 @@
+# Versions used to train the committed model (Python 3.13, macOS / Apple MPS).
+torch==2.15.0
+torchvision==0.29.2
+datasets==5.2.0
+onnx==1.23.2
+onnxruntime==1.32.0
+onnxscript==0.7.2
+pillow
+numpy

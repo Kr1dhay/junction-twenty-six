@@ -60,6 +60,8 @@ export function checkEnvironment(env: Env = process.env): FeatureStatus[] {
   add("Kiosk Gemini Live streaming voice", [...cloudSwitch, ...(has(env, "GEMINI_API_KEY") ? [] : ["GEMINI_API_KEY"]),
     ...(liveModel === "gemini-3.8-live" ? [] : ["GEMINI_LIVE_MODEL=gemini-3.8-live"])],
     "Kiosk falls back to the legacy voice engine (or the form).");
+  add("Kiosk skin photo risk score (CNN + Gemini vision)", [...cloudSwitch, ...["GEMINI_API_KEY", "GEMINI_MODEL"].filter(name => !has(env, name))],
+    "Skin photos are scored by the on-server CNN with a rule-based fallback instead of Gemini.");
   add("Doctor live translation and transcription", [...cloudSwitch, ...eleven, ...textLLM],
     "Starting a consultation fails; the visit continues without translation.");
   add("Doctor consultation recorder (Gemini Live key points)", [...cloudSwitch, ...eleven, ...textLLM, ...(has(env, "GEMINI_API_KEY") ? [] : ["GEMINI_API_KEY"])],

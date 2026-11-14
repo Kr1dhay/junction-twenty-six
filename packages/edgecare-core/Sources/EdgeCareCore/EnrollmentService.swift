@@ -9,10 +9,19 @@ public struct EnrollmentDraft: Sendable {
     public let lesionPresent: Bool
     public let answers: [String: String]
     public let clinicalProfile: ClinicalProfile?
+    /// CNN + Gemini demo summary for the clinician; nil when no photo was assessed.
+    public let lesionAssessment: String?
     public init(source: ReferralSource, language: String, concern: String, guidance: TriageGuidance,
-                letterText: String? = nil, lesionPresent: Bool = false, answers: [String: String] = [:], clinicalProfile: ClinicalProfile? = nil) {
+                letterText: String? = nil, lesionPresent: Bool = false, answers: [String: String] = [:], clinicalProfile: ClinicalProfile? = nil,
+                lesionAssessment: String? = nil) {
         self.source = source; self.language = language; self.concern = concern; self.guidance = guidance
         self.letterText = letterText; self.lesionPresent = lesionPresent; self.answers = answers; self.clinicalProfile = clinicalProfile
+        self.lesionAssessment = lesionAssessment
+    }
+    static let unassessedPhoto = "Photo capture noted. Raw image is not retained and no image assessment was run (offline or no consent)."
+    func lesionPhoto(previous: LesionPhoto? = nil) -> LesionPhoto {
+        guard lesionPresent else { return LesionPhoto(present: false, assessment: nil) }
+        return LesionPhoto(present: true, assessment: lesionAssessment.map { String($0.prefix(1500)) } ?? previous?.assessment ?? Self.unassessedPhoto)
     }
 }
 
@@ -39,7 +48,7 @@ public struct EnrollmentService: Sendable {
             language: language, symptoms: draft.guidance.symptoms, freeTextSummary: String(summary.prefix(4000)), patientLanguageSummary: draft.guidance.message,
             riskScore: draft.guidance.riskScore, riskBand: draft.guidance.riskBand, recommendedSpecialty: draft.guidance.recommendedSpecialty,
             letterScan: LetterScan(present: draft.letterText != nil, extractedText: nil),
-            lesionPhoto: LesionPhoto(present: draft.lesionPresent, assessment: draft.lesionPresent ? "Photo capture noted. Raw image is not retained and no medical image assessment was performed." : nil),
+            lesionPhoto: draft.lesionPhoto(previous: original.lesionPhoto),
             signatureTemplateEncrypted: original.signatureTemplateEncrypted, triageDetailEncrypted: encrypted.base64EncodedString(),
             salt: original.salt, commitmentHash: original.commitmentHash, status: original.status, expiresAt: original.expiresAt)
         return ReferralUpdate(expected: original, record: updated)
@@ -74,7 +83,7 @@ public struct EnrollmentService: Sendable {
             patientLanguageSummary: draft.guidance.message, riskScore: draft.guidance.riskScore,
             riskBand: draft.guidance.riskBand, recommendedSpecialty: draft.guidance.recommendedSpecialty,
             letterScan: LetterScan(present: draft.letterText != nil, extractedText: nil),
-            lesionPhoto: LesionPhoto(present: draft.lesionPresent, assessment: draft.lesionPresent ? "Photo capture noted. Raw image is not retained and no medical image assessment was performed." : nil),
+            lesionPhoto: draft.lesionPhoto(),
             signatureTemplateEncrypted: signature.base64EncodedString(), triageDetailEncrypted: triage.base64EncodedString(),
             salt: salt.base64EncodedString(), commitmentHash: try CommitmentCrypto.commitment(template: template, passcode: passcode, referralID: referralID, salt: salt),
             status: .open, expiresAt: formatter.string(from: now.addingTimeInterval(30 * 24 * 60 * 60)))
