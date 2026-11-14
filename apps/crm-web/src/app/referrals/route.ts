@@ -1,6 +1,6 @@
 import { referralSchema } from "@edgecare/shared-types";
 import { backend } from "../../server/backend";
-import { ConflictError } from "../../server/repository";
+import { ConflictError, DeletedError } from "../../server/repository";
 import { demoGuard, json, readJSON } from "../../server/http";
 import { accessGuard } from "../../server/auth";
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(request: Request) {
     const result = await backend().create(parsed.data);
     return json({ referral_id: parsed.data.referral_id }, result.created ? 201 : 200);
   } catch (error) {
+    if (error instanceof DeletedError) return json({ error: error.message }, 410);
     if (error instanceof ConflictError) return json({ error: error.message }, 409);
     throw error;
   }

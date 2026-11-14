@@ -125,6 +125,11 @@ public struct PatientRootView: View {
                 .tabItem { Label(Copy.text("new", intake.language), systemImage: "bubble.left.and.text.bubble.right") }
             NavigationStack { WalletView(app: app, language: intake.language) }
                 .tabItem { Label(Copy.text("wallet", intake.language), systemImage: "wallet.pass") }
+            NavigationStack {
+                PatientProfileView(app: app, language: intake.language) { id in
+                    if intake.record?.id == id || intake.editingReferral?.original.id == id { intake.reset() }
+                }
+            }.tabItem { Label(Copy.text("myProfile", intake.language), systemImage: "person.crop.circle") }
         }.tint(EdgeCareStyle.accent).task { await app.start() }
     }
 }

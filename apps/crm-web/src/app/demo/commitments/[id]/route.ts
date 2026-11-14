@@ -2,7 +2,7 @@ import { commitmentRequestSchema } from "@edgecare/shared-types";
 import { backend } from "../../../../server/backend";
 import { accessGuard } from "../../../../server/auth";
 import { canonicalID, demoGuard, json, readJSON } from "../../../../server/http";
-import { ConflictError } from "../../../../server/repository";
+import { ConflictError, DeletedError } from "../../../../server/repository";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
@@ -26,6 +26,7 @@ export async function PUT(request: Request, context: Context) {
     await store.create(id, parsed.data.commitment_hash);
     return json(await store.read(id));
   } catch (error) {
+    if (error instanceof DeletedError) return json({ error: error.message }, 410);
     if (error instanceof ConflictError) return json({ error: error.message }, 409);
     throw error;
   }

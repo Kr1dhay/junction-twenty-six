@@ -116,7 +116,7 @@ public enum DemoData {
         return try JSONDecoder().decode([ReferralRecord].self, from: Data(contentsOf: url))
     }
 }
-public enum CoreError: Error, Equatable { case invalidPasscode, invalidSalt, invalidSignature, notConfigured, conflict, notFound, alreadySpent, expired, verificationFailed, invalidConfiguration, passcodesDoNotMatch, emptyConcern, offline, noCachedCommitment, consentRequired, invalidResponse, unauthorized, providerUnavailable, languageUncertain }
+public enum CoreError: Error, Equatable { case deleted, invalidPasscode, invalidSalt, invalidSignature, notConfigured, conflict, notFound, alreadySpent, expired, verificationFailed, invalidConfiguration, passcodesDoNotMatch, emptyConcern, offline, noCachedCommitment, consentRequired, invalidResponse, unauthorized, providerUnavailable, languageUncertain }
 
 public extension ReferralRecord {
     /// Clinician-facing description. Older records stored the scripted-demo disclaimers inside
@@ -155,6 +155,7 @@ public extension CoreError {
         case .offline, .noCachedCommitment: return "This device needs to load the referral and its commitment while connected before it can verify offline."
         case .verificationFailed: return "We could not match this signature and passcode. Please try again."
         case .conflict: return "Another verification was accepted first. Clinician review is needed."
+        case .deleted: return "This profile was deleted. It cannot be restored from an offline upload."
         case .notFound: return "This referral was not found on this device or service."
         case .consentRequired: return "Online processing needs explicit consent. You can continue on this device."
         case .languageUncertain: return "The spoken language could not be detected confidently. Please repeat or choose your language."

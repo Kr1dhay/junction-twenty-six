@@ -124,6 +124,34 @@ public actor NativeSession {
         let service = try appointments(record: record, verification: verification)
         try await service.cancel(referralID: record.id, appointmentID: appointmentID)
     }
+    /// Patient ownership login includes expired referrals; expiry must not prevent erasure.
+    /// Merge only this device's cache so unsent records can also be removed.
+    public func patientProfiles(passcode: String, strokes: [[SignaturePoint]]) async throws -> [PatientProfileAccess] {
+        try enforceLocalAdapters()
+        try CommitmentCrypto.validate(passcode: passcode)
+        _ = try SignatureMatcher.extract(strokes)
+        guard configuration.demoMode || online else { throw CoreError.offline }
+        var records = Dictionary((await wallet.records()).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for record in try await api.list() { records[record.id] = record }
+        try Task.checkCancellation()
+        return records.values.sorted { $0.createdAt > $1.createdAt }.compactMap {
+            try? PatientProfileAccess(record: $0, passcode: passcode, strokes: strokes)
+        }
+    }
+    public func deletePatientProfile(_ access: PatientProfileAccess) async throws {
+        try enforceLocalAdapters()
+        guard configuration.demoMode || online else { throw CoreError.offline }
+        guard Date().timeIntervalSince(access.verifiedAt) >= 0,
+              Date().timeIntervalSince(access.verifiedAt) < 300 else { throw CoreError.verificationFailed }
+        // Persist the patient's deletion intent first. Interrupted deletion never reuploads
+        // an old referral on restart; the patient can sign in again and retry safely.
+        try await wallet.beginDeletion(id: access.id)
+        try await outbox.discard(referralID: access.id)
+        try await consultationOutbox?.discard(referralID: access.id)
+        try await api.deleteProfile(access)
+        if let local = chain as? MockChainClient { try await local.removeProfile(referralID: access.id) }
+        try await wallet.remove(id: access.id)
+    }
     public func isOnline() -> Bool { online }
     public func voiceTurn(audio: Data? = nil, mimeType: String = "audio/mp4", text: String? = nil,
                           language: String? = nil, profile: ClinicalProfile = ClinicalProfile(),
@@ -172,8 +200,19 @@ public actor NativeSession {
         try enforceLocalAdapters()
         guard configuration.demoMode || (configuration.allowsNetwork && online) else { return await walletEntries() }
         let entries = await walletEntries()
-        for entry in entries where entry.state == .available {
+        for entry in entries {
             guard configuration.demoMode || online else { break }
+            if await wallet.deletionRequested(id: entry.id) {
+                do { _ = try await api.fetchVerificationEnvelope(id: entry.id) }
+                catch CoreError.notFound {
+                    try await outbox.discard(referralID: entry.id)
+                    try await consultationOutbox?.discard(referralID: entry.id)
+                    if let local = chain as? MockChainClient { try await local.removeProfile(referralID: entry.id) }
+                    try await wallet.remove(id: entry.id)
+                }
+                continue
+            }
+            guard entry.state == .available else { continue }
             guard !verifying.contains(entry.id) else { continue }
             if let account = try await chain.read(referralID: entry.id) {
                 guard !verifying.contains(entry.id) else { continue }
@@ -355,6 +394,7 @@ public actor NativeSession {
     /// after both confirmations never loses the agreed consultation.
     public func submitConsultation(_ record: ConsultationRecord) async throws -> ConsultationSubmission {
         guard let consultationOutbox, configuration.allowsNetwork else { throw CoreError.providerUnavailable }
+        guard !(await wallet.deletionRequested(id: record.referralID)) else { throw CoreError.notFound }
         try await consultationOutbox.enqueue(record)
         guard online else { return .queued }
         do {
@@ -383,10 +423,18 @@ public actor NativeSession {
 
     public func sync() async throws -> SyncReport {
         try enforceLocalAdapters()
+        // Finish a crash between persisting deletion intent and discarding queued writes.
+        for entry in await wallet.allEntries() {
+            if await wallet.deletionRequested(id: entry.id) {
+                try await outbox.discard(referralID: entry.id)
+                try await consultationOutbox?.discard(referralID: entry.id)
+            }
+        }
         // Recover a crash between the wallet write and enrollment-outbox write.
         let pendingRecords = await outbox.pending()
         let pendingIDs = Set(pendingRecords.map(\.id))
         for entry in await wallet.allEntries() where entry.state == .pendingEnrollment && !pendingIDs.contains(entry.id) {
+            guard !(await wallet.deletionRequested(id: entry.id)) else { continue }
             try await outbox.enqueue(entry.record)
         }
         if configuration.demoMode {

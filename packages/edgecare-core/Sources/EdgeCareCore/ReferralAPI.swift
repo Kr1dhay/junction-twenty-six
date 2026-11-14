@@ -7,17 +7,25 @@ public protocol ReferralAPI: Sendable {
     func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord
     func list() async throws -> [ReferralRecord]
     func update(_ update: ReferralUpdate) async throws
+    func deleteProfile(_ access: PatientProfileAccess) async throws
 }
 public extension ReferralAPI {
+    func deleteProfile(_ access: PatientProfileAccess) async throws { throw CoreError.notConfigured }
     func list() async throws -> [ReferralRecord] { throw CoreError.notConfigured }
     func update(_ update: ReferralUpdate) async throws { throw CoreError.notConfigured }
 }
 public actor MockReferralAPI: ReferralAPI {
     private var records: [String: ReferralRecord]
+    private var deleted: Set<String> = []
     public init(records: [ReferralRecord] = []) { self.records = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
     public func submit(_ record: ReferralRecord) throws {
+        guard !deleted.contains(record.id) else { throw CoreError.deleted }
         if let existing = records[record.id], existing != record { throw CoreError.conflict }
         records[record.id] = record
+    }
+    public func deleteProfile(_ access: PatientProfileAccess) throws {
+        if let record = records[access.id] { try validateDeletionKey(record: record, key: access.key) }
+        deleted.insert(access.id); records.removeValue(forKey: access.id)
     }
     public func list() -> [ReferralRecord] { records.values.sorted { $0.createdAt > $1.createdAt } }
     public func update(_ update: ReferralUpdate) throws {
@@ -59,6 +67,7 @@ struct DemoHTTPTransport: Sendable {
         case 401, 403: throw CoreError.unauthorized
         case 404: throw CoreError.notFound
         case 409: throw CoreError.conflict
+        case 410: throw CoreError.deleted
         case 422: throw CoreError.languageUncertain
         case 503: throw CoreError.providerUnavailable
         default: throw CoreError.invalidResponse
@@ -69,6 +78,11 @@ public struct RESTReferralAPI: ReferralAPI {
     private let transport: DemoHTTPTransport
     public init(baseURL: URL, configuration: AppConfiguration, bearerToken: String? = nil, issuerToken: String? = nil) {
         transport = DemoHTTPTransport(baseURL: baseURL, configuration: configuration, bearerToken: bearerToken, issuerToken: issuerToken)
+    }
+    public func deleteProfile(_ access: PatientProfileAccess) async throws {
+        struct Proof: Encodable { let encryption_key: String }
+        _ = try await transport.request(path: ["referrals", access.id], method: "DELETE",
+            body: JSONEncoder().encode(Proof(encryption_key: access.key.base64EncodedString())))
     }
     public func submit(_ record: ReferralRecord) async throws {
         _ = try await transport.request(path: ["referrals"], method: "POST", body: try JSONEncoder().encode(record), issuer: true)
