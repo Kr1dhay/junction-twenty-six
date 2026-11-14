@@ -43,6 +43,10 @@ Patients can complete a structured form offline or have a turn-by-turn voice con
 
 Voice requires explicit consent, connectivity and server-side ElevenLabs plus Gemini credentials (directly or through Runware). The form remains available without those services. The clinical profile and clinician summary use English; localized replies and patient guidance are separate. No patient voice cloning is performed. See [hosted deployment and Mac connection](docs/deployment.md), the server `.env.example` and [voice setup](docs/voice-intake.md).
 
+## Kiosk appointment booking
+
+The kiosk can book shared demo appointment slots from its welcome screen or after saving a referral. Existing patients verify with their code and signature. Bookings and cancellations persist in the shared backend and appear in the CRM. These are demo appointments; no real clinic booking service is connected. See [appointment setup and Mac update](docs/appointments.md).
+
 ## Checks and additional tools
 
 ```sh

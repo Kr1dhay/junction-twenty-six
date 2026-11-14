@@ -29,6 +29,7 @@ import EdgeCareCore
     public var confirmation = ""
     public var understood = false
     public var record: ReferralRecord?
+    public var appointmentVerification: PatientVerification?
     public var editingReferral: ReferralEditSession?
     public var isUpdatingReferral: Bool { editingReferral != nil }
     public var didUpdateReferral = false
@@ -159,7 +160,11 @@ import EdgeCareCore
                 guard let pendingUpdate else { throw CoreError.invalidConfiguration }
                 sealed = try await session.updateReferral(pendingUpdate, authorization: editingReferral)
             } else { sealed = try await session.enroll(draft: draft, strokes: strokes, passcode: passcode, confirmation: confirmation) }
+            let bookingProof: PatientVerification?
+            if let editingReferral { bookingProof = await session.appointmentVerification(for: editingReferral) }
+            else { bookingProof = try? await session.verify(record: sealed, passcode: passcode, strokes: strokes) }
             guard generation == currentGeneration else { return }
+            appointmentVerification = bookingProof
             didUpdateReferral = isUpdatingReferral; editingReferral = nil; pendingUpdate = nil
             record = sealed
             passcode = ""; confirmation = ""; strokes = []; step = 7
@@ -173,7 +178,7 @@ import EdgeCareCore
     }
     public func reset() {
         generation += 1; busy = false
-        editingReferral = nil; pendingUpdate = nil; didUpdateReferral = false
+        editingReferral = nil; pendingUpdate = nil; didUpdateReferral = false; appointmentVerification = nil
         inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false; voiceIntakeComplete = false
         concern = ""; guidance = nil; step = 0; safety.reset(plan: []); safetyInput = nil; emergencyAdvicePending = false; continuedAfterEmergencyAdvice = false; letterText = ""; lesionPresent = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
@@ -283,6 +288,7 @@ public struct IntakeView: View {
             primary(t(kiosk ? "createNew" : "start")) { model.step = 1 }
             if kiosk {
                 Button(t("updateExisting")) { model.step = -1 }.buttonStyle(.bordered).frame(minHeight: 48)
+                Button(t("bookAppointment")) { model.step = 8 }.buttonStyle(.bordered).frame(minHeight: 48)
             }
         case 1:
             if let editing = model.editingReferral {
@@ -372,6 +378,9 @@ public struct IntakeView: View {
                     if let message = app.message { Text(message).font(.footnote) }
                 }
             }
+            if kiosk { primary(t("bookAppointment")) { model.step = 8 } }
+        case 8:
+            AppointmentBookingView(model: model, app: app)
         default: EmptyView()
         }
     }

@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { isDeepStrictEqual } from "node:util";
 import { toCRMReferral, type ReferralRecord, type CommitmentAccount } from "@edgecare/shared-types";
 import { ConflictError, MissingError } from "./repository";
+import { offeredSlots, eligibleSlot, makeAppointment, type Appointment } from "./appointments";
 import { preservesReferralIdentity } from "./referral-update";
 
 neonConfig.webSocketConstructor = WebSocket;
@@ -28,11 +29,58 @@ export class PostgresRepository {
           await client.query("SELECT pg_advisory_xact_lock(1650740387, 0)");
           await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_referrals (id TEXT PRIMARY KEY, payload JSONB NOT NULL);
             CREATE TABLE IF NOT EXISTS edgecare_demo_commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL CHECK (hash ~ '^[a-f0-9]{64}$'), spent BOOLEAN NOT NULL DEFAULT FALSE, created_slot BIGINT NOT NULL, spent_slot BIGINT, spent_at TEXT, operation_id TEXT);`);
+          await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_appointments (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, slot_id TEXT NOT NULL, starts_at TEXT NOT NULL, active BOOLEAN NOT NULL, payload JSONB NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS edgecare_appointments_slot_active ON edgecare_demo_appointments(slot_id) WHERE active;
+            CREATE UNIQUE INDEX IF NOT EXISTS edgecare_appointments_referral_active ON edgecare_demo_appointments(referral_id) WHERE active;`);
           await client.query("COMMIT");
         } catch (error) { await client.query("ROLLBACK"); throw error; }
       }).catch(error => { this.initialized = undefined; throw error; });
     }
     await this.initialized;
+  }
+  async appointmentSlots() {
+    await this.ready();
+    return this.connection(async client => {
+      const taken = new Set((await client.query<{ slot_id: string }>("SELECT slot_id FROM edgecare_demo_appointments WHERE active AND starts_at > $1", [this.now().toISOString()])).rows.map(row => row.slot_id));
+      return offeredSlots(this.now()).filter(slot => !taken.has(slot.slot_id));
+    });
+  }
+  async appointmentFor(id: string): Promise<Appointment | undefined> {
+    await this.ready();
+    return this.connection(async client => (await client.query<{ payload: Appointment }>("SELECT payload FROM edgecare_demo_appointments WHERE referral_id = $1 AND active AND starts_at > $2", [id, this.now().toISOString()])).rows[0]?.payload);
+  }
+  async bookAppointment(id: string, slotID: string, operationID: string): Promise<Appointment> {
+    try {
+      return await this.mutate(id, async client => {
+        const old = (await client.query<{ payload: Appointment }>("SELECT payload FROM edgecare_demo_appointments WHERE id = $1", [operationID])).rows[0]?.payload;
+        if (old) {
+          if (old.referral_id !== id || old.slot_id !== slotID) throw new ConflictError("Booking operation already used");
+          return old;
+        }
+        const record = await this.envelope(client, id);
+        if (!record) throw new MissingError("Referral not found");
+        const now = this.now(), slot = eligibleSlot(record, slotID, now);
+        if (!slot) throw new ConflictError("Slot is no longer available or referral has expired");
+        await client.query("UPDATE edgecare_demo_appointments SET active = FALSE, payload = jsonb_set(payload, '{status}', '\"completed\"') WHERE referral_id = $1 AND active AND starts_at <= $2", [id, now.toISOString()]);
+        const booking = makeAppointment(record, slot, operationID, now);
+        await client.query("INSERT INTO edgecare_demo_appointments (id, referral_id, slot_id, starts_at, active, payload) VALUES ($1, $2, $3, $4, TRUE, $5::jsonb)", [operationID, id, slotID, slot.starts_at, JSON.stringify(booking)]);
+        return booking;
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") throw new ConflictError("Slot was taken or this referral already has an appointment");
+      throw error;
+    }
+  }
+  async cancelAppointment(id: string, appointmentID: string): Promise<Appointment> {
+    return this.mutate(id, async client => {
+      const booking = (await client.query<{ payload: Appointment }>("SELECT payload FROM edgecare_demo_appointments WHERE id = $1 AND referral_id = $2 FOR UPDATE", [appointmentID, id])).rows[0]?.payload;
+      if (!booking) throw new MissingError("Appointment not found");
+      if (booking.status === "cancelled") return booking;
+      if (booking.starts_at <= this.now().toISOString()) throw new ConflictError("Appointment has already started");
+      const cancelled: Appointment = { ...booking, status: "cancelled" };
+      await client.query("UPDATE edgecare_demo_appointments SET active = FALSE, payload = $2::jsonb WHERE id = $1", [appointmentID, JSON.stringify(cancelled)]);
+      return cancelled;
+    });
   }
   async ping() {
     await this.ready();

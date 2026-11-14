@@ -40,6 +40,18 @@ test("clinician sees enrollment arrive, single-use spend propagate and stale dat
   const publicRecord = await (await request.get(`/referrals/${record.referral_id}`)).json();
   expect(publicRecord).not.toHaveProperty("salt");
   expect(publicRecord).not.toHaveProperty("signature_template_encrypted");
+  const available = await (await request.get("/appointments/slots")).json();
+  const bookingBody = { slot_id: available.slots[0].slot_id, operation_id: randomUUID() };
+  const booking = await request.post(`/referrals/${record.referral_id}/appointment`, { data: bookingBody });
+  expect(booking.status()).toBe(200);
+  const appointmentPanel = page.getByRole("region", { name: "Demo appointment", exact: true });
+  await expect(appointmentPanel).toContainText(bookingBody.operation_id, { timeout: 15_000 });
+  await expect(appointmentPanel).toContainText("Edge-Care demo clinic");
+  await expect(appointmentPanel).toContainText("does not reserve a real clinic appointment");
+  expect((await request.post(`/referrals/${record.referral_id}/appointment`, { data: bookingBody })).status()).toBe(200);
+  expect((await request.post(`/referrals/${record.referral_id}/appointment`, { data: { slot_id: available.slots[1].slot_id, operation_id: randomUUID() } })).status()).toBe(409);
+  expect((await request.delete(`/referrals/${record.referral_id}/appointment`, { data: { appointment_id: bookingBody.operation_id } })).status()).toBe(200);
+  await expect(appointmentPanel).toContainText("No upcoming demo appointment", { timeout: 15_000 });
   const operation_id = randomUUID();
   const body = { commitment_hash: record.commitment_hash, operation_id };
   expect((await request.post(`/demo/commitments/${record.referral_id}/spend`, { data: body })).status()).toBe(200);

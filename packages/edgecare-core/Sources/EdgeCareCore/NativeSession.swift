@@ -8,14 +8,15 @@ public actor NativeSession {
     public nonisolated let chain: any ChainClient
     public nonisolated let api: any ReferralAPI
     public nonisolated let configuration: AppConfiguration
+    private let appointmentAPI: (any AppointmentAPI)?
     private let voiceClient: ConsentGatedVoiceClient?
     private var online: Bool
     private var verifying: Set<String> = []
 
     public init(configuration: AppConfiguration, wallet: ReferralWallet, outbox: ReferralOutbox,
-                chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil) {
+                chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil, appointmentAPI: (any AppointmentAPI)? = nil) {
         self.configuration = configuration; self.wallet = wallet; self.outbox = outbox
-        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient
+        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
         let account = "wallet-v1-" + SHA256.hash(data: Data(directory.standardizedFileURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -50,7 +51,35 @@ public actor NativeSession {
         let chain = HTTPDemoChainClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         let api = RESTReferralAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         let voice = ConsentGatedVoiceClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: issuerToken ?? bearerToken)
-        return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice)
+        let appointments = RESTAppointmentAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
+        return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice, appointmentAPI: appointments)
+    }
+    /// The edit session was unlocked with the patient's code and signature on this device.
+    public func appointmentVerification(for authorization: ReferralEditSession) -> PatientVerification {
+        PatientVerification(referralID: authorization.original.id, commitmentHash: authorization.original.commitmentHash)
+    }
+    private func appointments(record: ReferralRecord, verification: PatientVerification) throws -> any AppointmentAPI {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard verification.referralID == record.id, verification.commitmentHash == record.commitmentHash,
+              Date().timeIntervalSince(verification.verifiedAt) < 15 * 60,
+              (AppointmentSlot.date(record.expiresAt).map { $0 > Date() } ?? false) else { throw CoreError.verificationFailed }
+        guard let appointmentAPI else { throw CoreError.notConfigured }
+        return appointmentAPI
+    }
+    public func appointmentAvailability(record: ReferralRecord, verification: PatientVerification) async throws -> AppointmentAvailability {
+        let service = try appointments(record: record, verification: verification)
+        let booking = try await service.appointment(referralID: record.id)
+        let slots = try await service.slots()
+        let expiry = AppointmentSlot.date(record.expiresAt) ?? .distantPast
+        return AppointmentAvailability(slots: slots.filter { $0.demo && ($0.endDate.map { $0 <= expiry } ?? false) }, appointment: booking)
+    }
+    public func bookAppointment(record: ReferralRecord, verification: PatientVerification, slotID: String, operationID: String) async throws -> AppointmentBooking {
+        let service = try appointments(record: record, verification: verification)
+        return try await service.book(referralID: record.id, slotID: slotID, operationID: operationID)
+    }
+    public func cancelAppointment(record: ReferralRecord, verification: PatientVerification, appointmentID: String) async throws {
+        let service = try appointments(record: record, verification: verification)
+        try await service.cancel(referralID: record.id, appointmentID: appointmentID)
     }
     public func isOnline() -> Bool { online }
     public func voiceTurn(audio: Data? = nil, mimeType: String = "audio/mp4", text: String? = nil,
