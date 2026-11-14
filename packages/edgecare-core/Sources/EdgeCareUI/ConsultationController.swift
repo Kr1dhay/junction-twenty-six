@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import EdgeCareCore
 
 /// An utterance whose language could not be attributed to either participant. It is never
@@ -135,6 +136,16 @@ struct UnclearUtterance: Identifiable, Equatable {
     }
 
     private func handle(_ event: ScribeEvent) {
+        #if DEBUG
+        // Event kinds only: transcript text is patient data and is never logged.
+        switch event {
+        case .started: consultationAudioLog.info("scribe: session started")
+        case .partial(let text, _): consultationAudioLog.debug("scribe: partial (\(text.count) chars)")
+        case .committed(let text, let language): consultationAudioLog.info("scribe: committed (\(text.count) chars, \(language ?? "?", privacy: .public))")
+        case .failed(let message): consultationAudioLog.error("scribe: failed \(message, privacy: .public)")
+        case .closed: consultationAudioLog.error("scribe: closed")
+        }
+        #endif
         switch event {
         case .partial(let text, _): partial = text
         case .committed(let text, let language):
@@ -158,6 +169,15 @@ struct UnclearUtterance: Identifiable, Equatable {
         }
     }
     private func handle(_ event: LiveRecorderEvent) {
+        #if DEBUG
+        switch event {
+        case .failed(let message): consultationAudioLog.error("recorder: failed \(message, privacy: .public)")
+        case .closed: consultationAudioLog.error("recorder: closed")
+        case .ready: consultationAudioLog.info("recorder: ready")
+        case .goAway: consultationAudioLog.info("recorder: goAway")
+        default: break
+        }
+        #endif
         switch event {
         case .ready: recordingStatus = "Recording with \(recordingModel ?? "Gemini Live")"; recordingAvailable = true; recordingEverWorked = true
         case .heard(let text): heard.append(text)

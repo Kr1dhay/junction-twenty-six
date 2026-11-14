@@ -248,7 +248,7 @@ public struct DoctorVerificationView: View {
                     Button { Task { await verify() } } label: {
                         if busy { ProgressView() } else { Label("Verify patient", systemImage: "person.badge.shield.checkmark") }
                     }.buttonStyle(.edgeCarePrimary)
-                        .disabled(busy || passcode.count != 4 || strokes.flatMap { $0 }.count < 4 || app.session == nil)
+                        .disabled(busy || passcode.count != 4 || (strokes.flatMap { $0 }.count < 4 && !isTestingBypass) || app.session == nil)
                     Text("Verification checks the signature and code on this device. It does not mark the referral as used.").font(.footnote).foregroundStyle(.secondary)
                     if isUsed { Text("This referral is already marked used. You can still verify the patient to log a new visit.").font(.footnote).foregroundStyle(.orange) }
                     if let error { Text(error).foregroundStyle(.red) }
@@ -302,6 +302,13 @@ public struct DoctorVerificationView: View {
     private func refreshConsultAvailability() async {
         guard let session = app.session else { canConsult = false; return }
         canConsult = await session.canConsult
+    }
+    private var isTestingBypass: Bool {
+        #if DEBUG
+        return passcode == NativeSession.testingBypassPasscode
+        #else
+        return false
+        #endif
     }
     private func clearSecrets() { passcode = ""; strokes = []; speech.stop() }
     private func resetVerification() { verification = nil; outcome = nil; error = nil; clearSecrets() }

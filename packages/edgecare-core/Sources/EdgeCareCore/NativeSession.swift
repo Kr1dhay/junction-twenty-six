@@ -241,6 +241,11 @@ public actor NativeSession {
     /// on this device. Neither the code nor fresh signature is sent to the API.
     /// Return every match: a person may have multiple referrals, and demo signatures
     /// are not unique enough to justify silently picking one.
+    #if DEBUG
+    /// TESTING ONLY (Debug builds): this code verifies a patient without a signature.
+    /// Compiled out of Release, so it never ships in TestFlight/App Store builds.
+    public static let testingBypassPasscode = "1987"
+    #endif
     public func findReferrals(passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) async throws -> ReferralSearchResult {
         try enforceLocalAdapters()
         try CommitmentCrypto.validate(passcode: passcode)
@@ -273,6 +278,13 @@ public actor NativeSession {
     /// even after the referral was marked used, so the clinician can log a new visit.
     public func verify(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]]) async throws -> PatientVerification {
         try enforceLocalAdapters()
+        #if DEBUG
+        // TESTING ONLY: the bypass code skips the signature and reuses the record's own
+        // commitment hash as a stand-in proof, so `markUsed` still accepts it.
+        if passcode == Self.testingBypassPasscode {
+            return PatientVerification(referralID: record.id, commitmentHash: record.commitmentHash)
+        }
+        #endif
         let hash = try VerificationService.authenticate(record: record, passcode: passcode, strokes: strokes)
         return PatientVerification(referralID: record.id, commitmentHash: hash)
     }
