@@ -2,6 +2,7 @@ import { voiceAccessGuard } from "../../../../../server/auth";
 import { demoGuard, json, readJSON } from "../../../../../server/http";
 import { createLiveSession, liveSessionRequestSchema } from "../../../../../server/gemini-live";
 import { VoiceError } from "../../../../../server/voice";
+import { logConfigFailure } from "../../../../../server/env-check";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -12,5 +13,7 @@ export async function POST(request: Request) {
   const parsed = liveSessionRequestSchema.safeParse(body);
   if (!parsed.success) return json({ error: "Explicit consent and a valid intake context are required" }, 400);
   try { return json(await createLiveSession(parsed.data, undefined, undefined, request.signal)); }
-  catch (error) { return json({ error: error instanceof VoiceError ? error.message : "Gemini Live is unavailable" }, error instanceof VoiceError ? error.status : 502); }
+  catch (error) {
+    logConfigFailure("Kiosk Gemini Live session", error instanceof Error ? error.message : "provider error");
+    return json({ error: error instanceof VoiceError ? error.message : "Gemini Live is unavailable" }, error instanceof VoiceError ? error.status : 502); }
 }

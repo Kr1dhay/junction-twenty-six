@@ -22,7 +22,8 @@
     "registry": "tsx scripts/registry.ts",
     "demo:studio": "pnpm --filter @edgecare/demo-video studio",
     "demo:render": "pnpm --filter @edgecare/demo-video render",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "env:check": "tsx --env-file-if-exists=apps/crm-web/.env.local scripts/check-env.ts"
   },
   "devDependencies": {
     "tsx": "^4.20.0",

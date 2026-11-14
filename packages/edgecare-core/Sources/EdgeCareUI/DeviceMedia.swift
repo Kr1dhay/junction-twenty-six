@@ -61,7 +61,8 @@ import PhotosUI
             recognitionRequest.requiresOnDeviceRecognition = true
             recognitionRequest.shouldReportPartialResults = true
             let input = audioEngine.inputNode
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in recognitionRequest.append(buffer) }
+            let tapRequest = AudioThreadBox(value: recognitionRequest)
+            input.installRealtimeTap(bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer in tapRequest.value.append(buffer) }
             engine = audioEngine; request = recognitionRequest
             task = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
                 let text = result?.bestTranscription.formattedString

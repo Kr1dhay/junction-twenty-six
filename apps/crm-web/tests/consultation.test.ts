@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { demoReferrals } from "@edgecare/shared-types/fixtures";
+import type { CreateAuthTokenConfig } from "@google/genai";
+import type { TokenMinter } from "../src/server/gemini-live";
 import { draftNotes, liveScribeInstruction, mintSessionTokens, speakText, translateSegment, type ConsultationConfig } from "../src/server/consultation";
 import { VoiceError } from "../src/server/voice";
 import { GET as listConsultations, POST as storeConsultation } from "../src/app/referrals/[id]/consultations/route";
@@ -18,20 +20,24 @@ test("session minting returns short-lived tokens and locks Gemini Live to a fixe
   const calls: { url: string; init: RequestInit }[] = [];
   const fetcher: typeof fetch = async (url, init) => {
     calls.push({ url: String(url), init: init! });
-    return String(url).includes("elevenlabs") ? Response.json({ token: "scribe-single-use" }) : Response.json({ name: "auth_tokens/ephemeral" });
+    return Response.json({ token: "scribe-single-use" });
   };
+  const minted: { key: string; config: CreateAuthTokenConfig }[] = [];
+  const mint: TokenMinter = async (key, tokenConfig) => { minted.push({ key, config: tokenConfig }); return { name: "auth_tokens/ephemeral" }; };
   const now = () => new Date("2026-11-14T10:00:00.000Z");
-  const result = await mintSessionTokens(sessionInput, config, fetcher, undefined, now);
+  const result = await mintSessionTokens(sessionInput, config, fetcher, undefined, now, mint);
+  assert.equal(calls.length, 1, "Gemini goes through the SDK minter, not a hand-built REST call");
   assert.equal(calls[0]!.url, "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe");
   assert.equal((calls[0]!.init.headers as Record<string, string>)["xi-api-key"], "eleven-test-secret");
-  const body = JSON.parse(calls[1]!.init.body as string);
-  assert.equal(calls[1]!.url, "https://generativelanguage.googleapis.com/v1beta/auth_tokens");
-  assert.equal(body.uses, 1);
-  assert.equal(body.expireTime, "2026-11-14T10:30:00.000Z");
-  assert.equal(body.liveConnectConstraints.model, "models/gemini-3.8-live");
-  assert.deepEqual(body.liveConnectConstraints.config.responseModalities, ["TEXT"]);
-  assert.equal(body.liveConnectConstraints.config.systemInstruction.parts[0].text, liveScribeInstruction);
-  assert.deepEqual(body.liveConnectConstraints.config.contextWindowCompression, { slidingWindow: {} });
+  assert.equal(minted.length, 1);
+  assert.equal(minted[0]!.key, "gemini-test-secret");
+  const token = minted[0]!.config;
+  assert.equal(token.uses, 1);
+  assert.equal(token.expireTime, "2026-11-14T10:30:00.000Z");
+  assert.equal(token.liveConnectConstraints?.model, "gemini-3.8-live");
+  assert.deepEqual(token.liveConnectConstraints?.config?.responseModalities, ["TEXT"]);
+  assert.deepEqual(token.liveConnectConstraints?.config?.systemInstruction, { parts: [{ text: liveScribeInstruction }] });
+  assert.deepEqual(token.liveConnectConstraints?.config?.contextWindowCompression, { slidingWindow: {} });
   assert.equal(result.scribe.token, "scribe-single-use");
   assert.equal(result.scribe.model, "scribe_v3_live");
   assert.equal(result.live?.token, "auth_tokens/ephemeral");
@@ -40,8 +46,11 @@ test("session minting returns short-lived tokens and locks Gemini Live to a fixe
 });
 
 test("recording is optional: a failed or unconfigured Gemini Live token still yields translation", async () => {
-  const failing = await mintSessionTokens(sessionInput, config, async url => String(url).includes("elevenlabs") ? Response.json({ token: "t" }) : new Response("no", { status: 403 }));
+  const failing = await mintSessionTokens(sessionInput, config, async () => Response.json({ token: "t" }), undefined, undefined,
+    async () => { throw new Error("403 model not available for this key"); });
   assert.equal(failing.live, null);
+  const empty = await mintSessionTokens(sessionInput, config, async () => Response.json({ token: "t" }), undefined, undefined, async () => ({}));
+  assert.equal(empty.live, null);
   const runware = await mintSessionTokens(sessionInput, { ...config, provider: "runware", runwareKey: "r", runwareModel: "google:gemini@3-flash", geminiKey: undefined }, async () => Response.json({ token: "t" }));
   assert.equal(runware.live, null);
   await assert.rejects(mintSessionTokens(sessionInput, { ...config, elevenKey: undefined }, async () => Response.json({})), (error: unknown) => error instanceof VoiceError && error.status === 503);

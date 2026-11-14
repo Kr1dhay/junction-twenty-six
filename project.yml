@@ -59,6 +59,19 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.doctor
         TARGETED_DEVICE_FAMILY: "1,2"
+    scheme:
+      testTargets: [EdgeCareDoctorTests]
+  EdgeCareDoctorTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [apps/doctor-ios/Tests]
+    dependencies:
+      - target: EdgeCareDoctor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.doctor.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/EdgeCareDoctor.app/EdgeCareDoctor"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   EdgeCarePatient:
     templates: [EdgeCareApp]
     sources: [apps/patient-ios/Sources]

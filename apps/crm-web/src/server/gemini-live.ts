@@ -49,7 +49,8 @@ export function liveConnectConfig(input: z.infer<typeof liveSessionRequestSchema
 }
 
 export type TokenMinter = (key: string, config: CreateAuthTokenConfig) => Promise<{ name?: string }>;
-const mintToken: TokenMinter = (key, config) => new GoogleGenAI({ apiKey: key,
+/** Mints a Gemini Live ephemeral token through the SDK, which maps these options to the REST wire format. */
+export const mintToken: TokenMinter = (key, config) => new GoogleGenAI({ apiKey: key,
   httpOptions: { apiVersion: "v1beta", timeout: 15_000 } }).authTokens.create({ config });
 
 export async function createLiveSession(input: z.infer<typeof liveSessionRequestSchema>, config = liveConfig(), mint: TokenMinter = mintToken, signal?: AbortSignal) {

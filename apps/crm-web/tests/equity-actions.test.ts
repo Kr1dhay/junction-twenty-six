@@ -45,7 +45,7 @@ test("AI retrieves only the selected evidence and rejects invented citations", a
     await assert.rejects(explainAction("screening", "baseline", async () => Response.json({ choices: [{ message: { tool_calls: [{ function: {
       name: "explain_action", arguments: JSON.stringify({ explanation: "Claim", evidence_ids: ["diagnosis"] }),
     } }] } }] })), /Unsupported citation/);
-    await assert.rejects(explainAction("screening", "baseline", async () => new Response("", { status: 502 })), /Provider unavailable/);
+    await assert.rejects(explainAction("screening", "baseline", async () => new Response("", { status: 502 })), /Runware returned HTTP 502/);
     await assert.rejects(explainAction("screening", "baseline", async () => Response.json({ choices: [] })));
   } finally {
     if (previous.key === undefined) delete process.env.RUNWARE_API_KEY; else process.env.RUNWARE_API_KEY = previous.key;

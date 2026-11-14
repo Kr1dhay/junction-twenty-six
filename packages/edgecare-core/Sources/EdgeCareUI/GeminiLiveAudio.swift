@@ -109,7 +109,7 @@ private final class LivePCMConverter: @unchecked Sendable {
                 self.onInput?(data, power)
             }
         }
-        input.installTap(onBus: 0, bufferSize: 1600, format: format) { buffer, _ in
+        input.installRealtimeTap(bufferSize: 1600, format: format) { buffer in
             if let (data, power) = converter.convert(buffer) { deliver(data, power) }
         }
         capturing = true
