@@ -40,6 +40,20 @@ public struct PatientVerification: Sendable, Equatable {
         self.referralID = referralID; self.commitmentHash = commitmentHash; self.verifiedAt = verifiedAt
     }
 }
+/// A matched referral and its fresh, in-memory proof. Search never consumes a referral.
+public struct VerifiedReferralMatch: Sendable, Identifiable {
+    public var id: String { record.id }
+    public let record: ReferralRecord
+    public let verification: PatientVerification
+    init(record: ReferralRecord, verification: PatientVerification) {
+        self.record = record; self.verification = verification
+    }
+}
+public struct ReferralSearchResult: Sendable {
+    public let matches: [VerifiedReferralMatch]
+    /// True for local mode, offline lookup, or transport fallback to the encrypted cache.
+    public let searchedLocalOnly: Bool
+}
 public enum VerificationSettlement: String, Sendable { case localDemo, confirmed, provisional }
 public struct VerificationOutcome: Sendable {
     public let settlement: VerificationSettlement

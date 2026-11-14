@@ -3,9 +3,20 @@ import EdgeCareCore
 
 public struct DoctorRootView: View {
     @State private var app = AppSession(doctor: true)
+    @State private var lookupMethod = "id"
     @State private var lookup = ""
+    @State private var lookupPIN = ""
+    @State private var lookupStrokes: [[SignaturePoint]] = []
+    @State private var lookupLanguage = "en"
+    @State private var matches: [VerifiedReferralMatch] = []
+    @State private var searchedLocalOnly = false
+    @State private var lookupMessage: String?
     @State private var selected: ReferralRecord?
+    @State private var selectedVerification: PatientVerification?
     @State private var lookupBusy = false
+    @State private var lookupTask: Task<Void, Never>?
+    @State private var lookupGeneration = 0
+    @State private var lastLookupActivity = Date()
     @Environment(\.scenePhase) private var scenePhase
     public init() {}
     public var body: some View {
@@ -15,39 +26,84 @@ public struct DoctorRootView: View {
                     SessionBanner(connected: app.connected)
                     Text("Anonymous clinical demo. Signature matching is an experimental aid; use clinician judgement. No identity is collected.").font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("Find a referral") {
-                    TextField("Full referral ID", text: $lookup)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
-                        .font(.system(.body, design: .monospaced))
-                    Button("Look up and cache") { Task { await find() } }.frame(minHeight: 44)
-                        .disabled(UUID(uuidString: lookup.trimmingCharacters(in: .whitespacesAndNewlines)) == nil || lookupBusy || app.session == nil)
-                    Text("Offline verification needs a referral and commitment cached on this device. Local demos on different devices do not share a registry.").font(.caption).foregroundStyle(.secondary)
+                Section("Find a patient referral") {
+                    Picker("Find using", selection: $lookupMethod) {
+                        Text("Referral ID").tag("id")
+                        Text("Signature + code").tag("signature")
+                    }.pickerStyle(.segmented).disabled(lookupBusy)
+                    if lookupMethod == "id" {
+                        TextField("Enter full referral ID", text: $lookup)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                            .font(.system(.body, design: .monospaced))
+                            .disabled(lookupBusy)
+                        Button("Find referral") { beginLookup() }.frame(minHeight: 48)
+                            .disabled(UUID(uuidString: lookup.trimmingCharacters(in: .whitespacesAndNewlines)) == nil || lookupBusy || app.session == nil)
+                    } else {
+                        Picker("Patient language", selection: $lookupLanguage) {
+                            ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
+                        }.disabled(lookupBusy)
+                        PINField(title: Copy.text("enterPin", lookupLanguage), value: $lookupPIN).disabled(lookupBusy)
+                        Text(Copy.text("signature", lookupLanguage)).font(.headline)
+                        SignaturePad(strokes: $lookupStrokes, language: lookupLanguage).id(lookupGeneration).disabled(lookupBusy)
+                        Button("Find with signature + code") { beginLookup() }.frame(minHeight: 48)
+                            .disabled(lookupPIN.count != 4 || lookupStrokes.flatMap { $0 }.count < 4 || lookupBusy || app.session == nil)
+                        Text("No referral ID needed. The signature and code are checked on this phone against clinician-accessible referrals. They are not uploaded.").font(.caption).foregroundStyle(.secondary)
+                        Text("Searches unexpired referrals, including referrals already used. Offline search covers only this phone's saved referrals.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if lookupBusy {
+                        ProgressView("Finding referrals…")
+                        Button("Cancel lookup", role: .cancel) { cancelLookup() }
+                    }
+                    if let lookupMessage { Text(lookupMessage).font(.footnote).foregroundStyle(.secondary) }
+                }
+                if !matches.isEmpty {
+                    Section("Matching referrals") {
+                        Text("More than one referral matched. Choose the referral for this visit; matching does not establish a unique patient identity.").font(.footnote).foregroundStyle(.secondary)
+                        if searchedLocalOnly { Text("Results from this device only.").font(.caption) }
+                        ForEach(matches) { match in
+                            Button { open(match) } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    row(match.record)
+                                    Text(match.id).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                }
+                            }.buttonStyle(.plain)
+                        }
+                    }
                 }
                 Section("Anonymous referrals") {
-                    if app.records.isEmpty { Text("No cached referrals. Look up an ID or sync the shared demo.").foregroundStyle(.secondary) }
+                    if app.records.isEmpty { Text("No saved referrals. Enter an ID, use signature + code, or sync.").foregroundStyle(.secondary) }
                     ForEach(app.records) { record in
                         NavigationLink { DoctorVerificationView(record: record, app: app) } label: { row(record) }
                     }
                 }
                 if let message = app.message { Section { Text(message).font(.footnote) } }
-                Section { Button("Sync shared state") { Task { await app.sync() } }.disabled(app.busy) }
+                Section { Button("Sync shared state") { Task { await app.sync() } }.disabled(app.busy || lookupBusy) }
             }
             .navigationTitle("Doctor verification")
-            .refreshable { await app.sync() }
-            .navigationDestination(isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } })) {
-                if let selected { DoctorVerificationView(record: selected, app: app) }
+            .refreshable { if !lookupBusy { await app.sync() } }
+            .navigationDestination(isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil; selectedVerification = nil; matches = [] } })) {
+                if let selected { DoctorVerificationView(record: selected, app: app, verification: selectedVerification) }
             }
             .task { await app.start() }
             .onReceive(Timer.publish(every: 8, on: .main, in: .common).autoconnect()) { _ in
-                guard scenePhase == .active, !app.busy else { return }
+                guard scenePhase == .active else { return }
+                if Date().timeIntervalSince(lastLookupActivity) > 120 { cancelLookup() }
+                guard !app.busy, !lookupBusy else { return }
                 Task { await app.refresh() }
             }
             .toolbar { ToolbarItem { Menu("Demo controls") { Toggle("Simulate offline", isOn: $app.simulateOffline) } } }
         }.tint(EdgeCareStyle.mulberry)
-        .onChange(of: scenePhase) { _, phase in if phase != .active { lookup = "" } }
+        .onChange(of: lookupMethod) { _, _ in cancelLookup(); lookupMessage = nil }
+        .onChange(of: lookupPIN) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }
+        .onChange(of: lookupStrokes) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }
+        .onChange(of: lookup) { _, _ in lastLookupActivity = Date() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { cancelLookup(); selected = nil; selectedVerification = nil }
+        }
+        .onDisappear { cancelLookup() }
     }
     private func row(_ record: ReferralRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -57,11 +113,50 @@ public struct DoctorRootView: View {
             Text("\(record.language.uppercased()) · \(record.riskBand.rawValue) demo priority · \(record.riskScore)/100").font(.caption)
         }.padding(.vertical, 8)
     }
-    private func find() async {
-        guard let session = app.session else { return }
-        lookupBusy = true; defer { lookupBusy = false }
-        do { selected = try await session.cacheReferral(id: lookup.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()); lookup = ""; await app.refresh() }
-        catch { app.message = "Referral unavailable. Check the full ID and connection. Offline lookup needs an earlier cache. (\(error))" }
+    private func clearLookupSecrets() { lookupPIN = ""; lookupStrokes = [] }
+    private func cancelLookup() {
+        lookupGeneration += 1; lookupTask?.cancel(); lookupTask = nil
+        lookupBusy = false; matches = []; lookup = ""; clearLookupSecrets()
+    }
+    private func open(_ match: VerifiedReferralMatch) {
+        selectedVerification = match.verification; selected = match.record
+        matches = []; clearLookupSecrets(); lastLookupActivity = Date()
+    }
+    private func beginLookup() {
+        guard let session = app.session, !lookupBusy else { return }
+        let method = lookupMethod, id = lookup.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pin = lookupPIN, strokes = lookupStrokes
+        cancelLookup(); lookupBusy = true; lookupMessage = nil; searchedLocalOnly = false
+        lastLookupActivity = Date()
+        let current = lookupGeneration
+        lookupTask = Task {
+            defer { if current == lookupGeneration { lookupBusy = false; lookupTask = nil } }
+            do {
+                if method == "id" {
+                    let record = try await session.cacheReferral(id: id)
+                    await app.refreshCachedRecords()
+                    guard !Task.isCancelled, current == lookupGeneration, scenePhase == .active else { return }
+                    selectedVerification = nil; selected = record
+                } else {
+                    let result = try await session.findReferrals(passcode: pin, strokes: strokes)
+                    await app.refreshCachedRecords()
+                    guard !Task.isCancelled, current == lookupGeneration, scenePhase == .active else { return }
+                    searchedLocalOnly = result.searchedLocalOnly
+                    if result.matches.count == 1, let match = result.matches.first { open(match) }
+                    else {
+                        matches = result.matches
+                        if matches.isEmpty {
+                            lookupMessage = result.searchedLocalOnly
+                                ? "No matching unexpired referral saved on this phone. Connect and search again, or use the referral ID."
+                                : "No matching unexpired referral found. Check the code and signature, or use the referral ID."
+                        }
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled, current == lookupGeneration else { return }
+                lookupMessage = (error as? CoreError)?.userMessage ?? "Lookup could not finish. Check the connection and try again."
+            }
+        }
     }
 }
 
@@ -78,8 +173,10 @@ public struct DoctorVerificationView: View {
     @State private var lastActivity = Date()
     @StateObject private var speech = SpeechController()
     @Environment(\.scenePhase) private var scenePhase
-    public init(record: ReferralRecord, app: AppSession) {
+    public init(record: ReferralRecord, app: AppSession, verification: PatientVerification? = nil) {
         self.record = record; self.app = app; _language = State(initialValue: record.language)
+        let matchesRecord = verification?.referralID == record.id && verification?.commitmentHash == record.commitmentHash
+        _verification = State(initialValue: matchesRecord ? verification : nil)
     }
     private func t(_ key: String) -> String { Copy.text(key, language) }
     private var walletState: WalletState { app.wallet.first(where: { $0.id == record.id })?.state ?? .available }
@@ -159,7 +256,7 @@ public struct DoctorVerificationView: View {
         .navigationTitle("Verify referral")
         .onChange(of: passcode) { _, _ in lastActivity = Date() }
         .onChange(of: strokes) { _, _ in lastActivity = Date() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { clearSecrets() } }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { resetVerification() } }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
             if Date().timeIntervalSince(lastActivity) > 120 { clearSecrets() }
         }

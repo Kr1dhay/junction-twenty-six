@@ -143,6 +143,38 @@ public actor NativeSession {
             throw error
         }
     }
+    /// Retrieves clinician-authorized envelopes and matches their encrypted templates
+    /// on this device. Neither the code nor fresh signature is sent to the API.
+    /// Return every match: a person may have multiple referrals, and demo signatures
+    /// are not unique enough to justify silently picking one.
+    public func findReferrals(passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) async throws -> ReferralSearchResult {
+        try enforceLocalAdapters()
+        try CommitmentCrypto.validate(passcode: passcode)
+        _ = try SignatureMatcher.extract(strokes)
+        try Task.checkCancellation()
+        let records: [ReferralRecord]
+        var localOnly = configuration.demoMode || !online
+        if !configuration.demoMode && !online {
+            records = await wallet.records()
+        } else {
+            do { records = try await api.list() }
+            catch {
+                guard Self.isTransportFailure(error) else { throw error }
+                records = await wallet.records(); localOnly = true
+            }
+        }
+        try Task.checkCancellation()
+        var matches: [VerifiedReferralMatch] = []
+        for record in records.sorted(by: { $0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt > $1.createdAt }) {
+            try Task.checkCancellation()
+            // A wrong code, different signature, expired or corrupt envelope is not a match.
+            guard let hash = try? VerificationService.authenticate(record: record, passcode: passcode, strokes: strokes, now: now) else { continue }
+            try await wallet.store(record, state: record.status == .spent ? .spent : .available)
+            matches.append(VerifiedReferralMatch(record: record, verification: PatientVerification(referralID: record.id, commitmentHash: hash, verifiedAt: now)))
+        }
+        try Task.checkCancellation()
+        return ReferralSearchResult(matches: matches, searchedLocalOnly: localOnly)
+    }
     /// Authenticates the patient for this visit without consuming the referral. It succeeds
     /// even after the referral was marked used, so the clinician can log a new visit.
     public func verify(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]]) async throws -> PatientVerification {

@@ -52,6 +52,12 @@ import UIKit
         }
         wallet = await session.walletEntries()
     }
+    /// Present newly retrieved referrals without repeating the network list request.
+    public func refreshCachedRecords() async {
+        guard let session else { return }
+        if doctor { records = await session.wallet.records() }
+        wallet = await session.walletEntries()
+    }
     private func startConnectivityObserver() {
         guard connected else { return }
         #if canImport(Network)
