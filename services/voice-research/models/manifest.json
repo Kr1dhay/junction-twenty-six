@@ -1,0 +1,12 @@
+{
+  "model_id": "paterson-mfcc-lr-hackathon-demo",
+  "model_version": "7811f6d8cc8a",
+  "sha256": "06f1c199787cec244ec8924739eefcdd8d0149ef7832c4cdcd7357be173d2b6a",
+  "source_sha256": "c7278909c9961ec675bdacd63acd5c4862c49274b1ccd56b781387ed272d1853",
+  "parity": {
+    "cases": 12,
+    "maximum_margin_error": 4.884636545909871e-06,
+    "clinical_validation": false
+  },
+  "license_status": "not_provided_by_upstream"
+}

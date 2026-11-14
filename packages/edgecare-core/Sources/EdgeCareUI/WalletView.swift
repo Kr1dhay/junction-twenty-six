@@ -13,6 +13,7 @@ public struct ReferralHandoff: View {
             ShareLink(item: record.id) { Label(Copy.text("referralID", language), systemImage: "square.and.arrow.up") }.buttonStyle(.edgeCareSecondary)
             Text(Copy.text("handoff", language))
             Text(record.patientLanguageSummary).font(.body)
+            if let result = record.voiceResearch { VoiceResearchResultView(result: result, language: language) }
             LabeledContent(Copy.text("expires", language), value: String(record.expiresAt.prefix(10)))
         }
         .foregroundStyle(EdgeCareStyle.graphite)

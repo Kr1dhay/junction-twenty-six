@@ -236,7 +236,7 @@ struct VoiceMicrophone: View {
 }
 
 /// A raised, outlined control rather than a decorative microphone illustration.
-private struct VoiceMicrophoneButtonStyle: ButtonStyle {
+struct VoiceMicrophoneButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         StyledBody(configuration: configuration)
     }
