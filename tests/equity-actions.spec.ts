@@ -5,6 +5,12 @@ for (const width of [1600, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
     await page.getByRole("button", { name: "Enter clinician demo" }).click();
+    await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "What should we do?" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Equity actions", exact: true }).click();
+    await expect(page).toHaveURL(/\/equity-actions$/);
+    await expect(page.getByRole("link", { name: "Equity actions", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { level: 1, name: "What should we do?" })).toBeVisible();
     const section = page.getByRole("region", { name: "What should we do?" });
     await expect(section).toBeVisible();
     await section.scrollIntoViewIfNeeded();
@@ -33,5 +39,15 @@ for (const width of [1600, 390]) {
     await section.getByRole("combobox", { name: "Explore a scenario" }).selectOption("baseline");
     await expect(section.getByText("AI-assisted explanation · review required")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1, name: "What should we do?" })).toBeVisible();
+    await page.getByRole("link", { name: "All referrals", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
   });
 }
+
+test("equity page requires a clinician session", async ({ page }) => {
+  await page.goto("/equity-actions");
+  await expect(page.getByRole("button", { name: "Enter clinician demo" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "What should we do?" })).toHaveCount(0);
+});

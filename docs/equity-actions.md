@@ -1,6 +1,10 @@
 # CRM equity actions
 
 Open the authenticated CRM and select **Equity actions** in the sidebar.
+This opens the dedicated `/equity-actions` page; action cards are not embedded
+in the referrals view. Direct navigation requires the same clinician session.
+On phones, a compact page-navigation row replaces the desktop sidebar links.
+The equity page does not poll referral records.
 
 Three reviewed action plans cover screening participation, referral acknowledgment,
 and appointment attendance. Every card includes an accountable owner, implementation

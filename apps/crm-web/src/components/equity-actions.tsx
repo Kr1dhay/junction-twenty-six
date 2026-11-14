@@ -2,11 +2,12 @@
 import { useState } from "react";
 import { actionIDs, buildAction, evidence, rate, type ActionID, type Scenario } from "../lib/equity-actions";
 
-export function EquityActions() {
+export function EquityActions({ standalone = false }: { standalone?: boolean }) {
   const [scenario, setScenario] = useState<Scenario>("baseline");
+  const Heading = standalone ? "h1" : "h2";
   return <section className="equity-section" id="equity-actions" aria-labelledby="equity-title">
     <div className="equity-heading">
-      <div><p className="eyebrow">FROM EVIDENCE TO ACTION</p><h2 id="equity-title">What should we do?</h2><p>Find the handoff. Choose an owner. Test an improvement.</p></div>
+      <div><p className="eyebrow">FROM EVIDENCE TO ACTION</p><Heading id="equity-title">What should we do?</Heading><p>Find the handoff. Choose an owner. Test an improvement.</p></div>
       <label className="equity-scenario">Explore a scenario<select value={scenario} onChange={event => setScenario(event.target.value as Scenario)}>
         <option value="baseline">Illustrative gaps</option><option value="improved">Illustrative gaps closed</option>
       </select></label>
