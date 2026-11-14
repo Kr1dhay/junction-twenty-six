@@ -10,6 +10,7 @@ struct ConversationView: View {
     @State private var didShowReview = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.edgeCareCompactLayout) private var compact
     @ScaledMetric(relativeTo: .body) private var transcriptHeight = 320
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     private var enabled: Bool { model.voiceConsent && app.connected && !app.simulateOffline && app.session != nil }
@@ -18,20 +19,21 @@ struct ConversationView: View {
         !model.clinicalProfile.durationEnglish.isEmpty || !model.clinicalProfile.additionalContextEnglish.isEmpty
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: compact ? 12 : 20) {
             Text(t("voiceReadyTitle")).font(.title2.bold()).foregroundStyle(EdgeCareStyle.graphite)
-            VStack(alignment: .leading, spacing: 12) {
-                Text(t("cloudDisclosure")).font(.subheadline).foregroundStyle(.secondary)
-                Toggle(t("cloudConsent"), isOn: $model.voiceConsent)
-            }.edgeCareCard(padding: 16)
-            if !app.connected || app.simulateOffline {
-                Label(t("voiceUnavailable"), systemImage: "wifi.slash")
-            } else {
-                controls
-                DisclosureGroup(t("aboutVoice")) {
-                    Text(t("voiceDescription")).font(.subheadline).foregroundStyle(.secondary).padding(.top, 8)
+            if compact {
+                HStack(alignment: .center, spacing: 32) {
+                    if app.connected && !app.simulateOffline { controls.frame(width: 320) }
+                    voiceSetup
                 }
-                textComposer
+            } else {
+                voiceConsent
+                if !app.connected || app.simulateOffline {
+                    Label(t("voiceUnavailable"), systemImage: "wifi.slash")
+                } else {
+                    controls
+                    voiceOptions
+                }
             }
             if let key = conversation.noticeKey {
                 Label(t(key), systemImage: "exclamationmark.bubble")
@@ -67,6 +69,29 @@ struct ConversationView: View {
         }
     }
 
+    private var voiceConsent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(t("cloudDisclosure")).font(.subheadline).foregroundStyle(.secondary)
+            Toggle(t("cloudConsent"), isOn: $model.voiceConsent)
+        }.edgeCareCard(padding: 16)
+    }
+    private var voiceSetup: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            voiceConsent
+            if !app.connected || app.simulateOffline {
+                Label(t("voiceUnavailable"), systemImage: "wifi.slash")
+            } else { voiceOptions }
+        }
+    }
+    private var voiceOptions: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            DisclosureGroup(t("aboutVoice")) {
+                Text(t("voiceDescription")).font(.subheadline).foregroundStyle(.secondary).padding(.top, 8)
+            }
+            textComposer
+        }
+    }
+
     private var controls: some View {
         VStack(spacing: 16) {
             Button {
@@ -78,8 +103,7 @@ struct ConversationView: View {
                     Text(t(model.voiceIntakeComplete ? "updateConversation" : "startConversation")).font(.title3.bold())
                 }.frame(maxWidth: .infinity).contentShape(Rectangle())
             }
-            .buttonStyle(.plain).foregroundStyle(EdgeCareStyle.accent).disabled(!enabled)
-            .opacity(enabled ? 1 : 0.55)
+            .buttonStyle(VoiceMicrophoneButtonStyle()).foregroundStyle(EdgeCareStyle.accent).disabled(!enabled)
             Text(t("voiceReadyHint")).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }.padding(.vertical, 12)
     }
@@ -211,6 +235,31 @@ struct VoiceMicrophone: View {
     }
 }
 
+/// A raised, outlined control rather than a decorative microphone illustration.
+private struct VoiceMicrophoneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyledBody(configuration: configuration)
+    }
+    private struct StyledBody: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isEnabled) private var enabled
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: 32, style: .continuous)
+            configuration.label
+                .padding(12)
+                .background(shape.fill(configuration.isPressed ? EdgeCareStyle.blush : EdgeCareStyle.card))
+                .overlay(shape.strokeBorder(EdgeCareStyle.accent.opacity(enabled ? 0.8 : 0.35), lineWidth: 2))
+                .shadow(color: EdgeCareStyle.accent.opacity(enabled ? 0.16 : 0.05),
+                        radius: configuration.isPressed ? 1 : 5, y: configuration.isPressed ? 1 : 4)
+                .contentShape(shape)
+                .opacity(enabled ? 1 : 0.55)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+        }
+    }
+}
+
 /// Full-screen presentation is independent of audio/network ownership.
 struct ConversationStage: View {
     let language: String
@@ -225,6 +274,7 @@ struct ConversationStage: View {
     let onMicrophone: () -> Void
     let onPause: () -> Void
     let onContinue: () -> Void
+    @Environment(\.edgeCareCompactLayout) private var compact
     private func t(_ key: String) -> String { Copy.text(key, language) }
     private var busy: Bool { phase == .connecting || phase == .processing || phase == .settling }
     private var dialogue: [VoiceConversationTurn] {
@@ -245,72 +295,88 @@ struct ConversationStage: View {
                 }.font(.body.weight(.semibold)).foregroundStyle(EdgeCareStyle.accent).padding(.horizontal, 24)
                 Divider().overlay(EdgeCareStyle.hairline)
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: compact ? 10 : 16) {
                         Spacer(minLength: 8)
                         Text(t(phase.screenTitleKey))
-                            .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                            .font(.system(compact ? .title2 : .largeTitle, design: .rounded, weight: .bold))
                             .foregroundStyle(EdgeCareStyle.graphite)
                             .multilineTextAlignment(.center).accessibilityAddTraits([.isHeader, .updatesFrequently])
                             .accessibilityIdentifier("voiceStageTitle")
-                        if busy {
-                            ZStack {
-                                VoiceMicrophone(symbol: phase == .connecting ? "wifi" : phase == .settling ? "mic.slash.fill" : "ellipsis", size: 192, active: false)
-                                ProgressView().controlSize(.large).offset(y: 62)
-                            }.accessibilityElement(children: .ignore).accessibilityLabel(t(phase.screenTitleKey))
-                        } else {
-                            Button(action: onMicrophone) {
-                                VoiceMicrophone(symbol: "mic.fill", size: 192,
-                                                active: phase == .listening || phase == .speaking)
-                            }.buttonStyle(.plain).disabled(!controlsEnabled)
-                                .accessibilityIdentifier("voiceMicrophone")
-                                .accessibilityLabel(t(phase.microphoneActionKey))
-                        }
-                        Text(t(phase.screenHintKey)).font(phase == .speaking ? .title3.bold() : .title3)
-                            .foregroundStyle(phase == .speaking ? EdgeCareStyle.accent : .secondary)
-                            .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                        if let noticeKey {
-                            Label(t(noticeKey), systemImage: "exclamationmark.bubble")
-                                .font(.subheadline).foregroundStyle(EdgeCareStyle.accent)
-                        }
-                        if !dialogue.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(t("latestDialogue")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                ScrollViewReader { proxy in
-                                    ScrollView {
-                                        VStack(alignment: .leading, spacing: 12) {
-                                            ForEach(Array(dialogue.enumerated()), id: \.offset) { _, turn in
-                                                VStack(alignment: .leading, spacing: 6) {
-                                                    Text(turn.role == "user" ? t("you") : "Edi").font(.caption.bold()).foregroundStyle(EdgeCareStyle.accent)
-                                                    Text(turn.text).font(.title3).foregroundStyle(EdgeCareStyle.graphite)
-                                                        .fixedSize(horizontal: false, vertical: true)
-                                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                                    .padding(18).background(turn.role == "user" ? EdgeCareStyle.blush : EdgeCareStyle.card,
-                                                                           in: RoundedRectangle(cornerRadius: 20))
-                                                    .accessibilityElement(children: .combine)
-                                            }
-                                            Color.clear.frame(height: 1).id("latest")
-                                        }
-                                    }
-                                    .defaultScrollAnchor(.bottom)
-                                    .onChange(of: dialogue.map(\.text)) { _, _ in proxy.scrollTo("latest", anchor: .bottom) }
-                                }
-                                .frame(height: min(260, max(160, geometry.size.height * 0.26)))
-                            }.frame(maxWidth: 760)
+                        let layout = compact ? AnyLayout(HStackLayout(alignment: .center, spacing: 32)) :
+                            AnyLayout(VStackLayout(spacing: 16))
+                        layout {
+                            microphoneControl.frame(width: compact ? 288 : nil)
+                            stageDetails(height: geometry.size.height)
                         }
                         Spacer(minLength: 8)
                         if phase == .listening || phase == .speaking || busy {
                             Button(t("pauseConversation"), action: onPause).buttonStyle(.edgeCareSecondary).disabled(!controlsEnabled)
+                                .accessibilityIdentifier("voicePause")
                         }
                         if canContinue && (phase == .paused || phase == .complete) {
                             Button(t("next"), action: onContinue).buttonStyle(.edgeCarePrimary)
                         }
                     }
-                    .padding(24).frame(maxWidth: 900)
+                    .padding(compact ? 16 : 24).frame(maxWidth: 900)
                     .frame(minHeight: max(0, geometry.size.height - 65))
                     .frame(maxWidth: .infinity)
                 }
             }.background(EdgeCareStyle.canvas.ignoresSafeArea())
         }.interactiveDismissDisabled()
+    }
+    @ViewBuilder private var microphoneControl: some View {
+        if busy {
+            ZStack {
+                VoiceMicrophone(symbol: phase == .connecting ? "wifi" : phase == .settling ? "mic.slash.fill" : "ellipsis", size: 192, active: false)
+                ProgressView().controlSize(.large).offset(y: 62)
+            }.accessibilityElement(children: .ignore).accessibilityLabel(t(phase.screenTitleKey))
+        } else {
+            Button(action: onMicrophone) {
+                VStack(spacing: 8) {
+                    VoiceMicrophone(symbol: "mic.fill", size: 192, active: phase == .listening || phase == .speaking)
+                    Text(t(phase.microphoneActionKey)).font(.subheadline.bold())
+                        .foregroundStyle(EdgeCareStyle.accent).multilineTextAlignment(.center)
+                }
+            }.buttonStyle(VoiceMicrophoneButtonStyle()).disabled(!controlsEnabled)
+                .accessibilityIdentifier("voiceMicrophone")
+                .accessibilityLabel(t(phase.microphoneActionKey))
+        }
+    }
+    private func stageDetails(height: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            Text(t(phase.screenHintKey))
+                .font((compact ? Font.body : .title3).weight(phase == .speaking ? .bold : .regular))
+                .foregroundStyle(phase == .speaking ? EdgeCareStyle.accent : .secondary)
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            if let noticeKey {
+                Label(t(noticeKey), systemImage: "exclamationmark.bubble")
+                    .font(.subheadline).foregroundStyle(EdgeCareStyle.accent)
+            }
+            if !dialogue.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(t("latestDialogue")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(Array(dialogue.enumerated()), id: \.offset) { _, turn in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(turn.role == "user" ? t("you") : "Edi").font(.caption.bold()).foregroundStyle(EdgeCareStyle.accent)
+                                        Text(turn.text).font(compact ? .body : .title3).foregroundStyle(EdgeCareStyle.graphite)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(18).background(turn.role == "user" ? EdgeCareStyle.blush : EdgeCareStyle.card,
+                                                               in: RoundedRectangle(cornerRadius: 20))
+                                        .accessibilityElement(children: .combine)
+                                }
+                                Color.clear.frame(height: 1).id("latest")
+                            }
+                        }
+                        .defaultScrollAnchor(.bottom)
+                        .onChange(of: dialogue.map(\.text)) { _, _ in proxy.scrollTo("latest", anchor: .bottom) }
+                    }.frame(height: compact ? 180 : min(260, max(160, height * 0.26)))
+                }
+            }
+        }.frame(maxWidth: compact ? .infinity : 760)
     }
 }
 
@@ -349,30 +415,43 @@ extension ConversationController.Phase {
 struct StructuredConcernForm: View {
     @Bindable var model: IntakeViewModel
     var compact = false
+    @Environment(\.edgeCareCompactLayout) private var landscape
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     static let englishSymptoms = ["skin_change": "New or changing skin lesion", "lump": "New lump or swelling", "unexplained_bleeding": "Unexplained bleeding", "persistent_cough": "Persistent cough", "screening_letter": "Help understanding a screening letter", "other_concern": "Other health concern"]
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: landscape ? 10 : 16) {
             Text(t("symptomQuestion")).font(.headline)
-            ForEach(["skin_change", "lump", "unexplained_bleeding", "persistent_cough", "screening_letter", "other_concern"], id: \.self) { symptom in
-                Toggle(t(symptom), isOn: Binding(get: { model.selectedSymptoms.contains(symptom) }, set: { selected in
-                    if selected { model.selectedSymptoms.insert(symptom) } else { model.selectedSymptoms.remove(symptom) }
-                    updateProfile()
-                })).toggleStyle(.edgeCareCheckRow)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: landscape ? 2 : 1), spacing: landscape ? 10 : 16) {
+                ForEach(["skin_change", "lump", "unexplained_bleeding", "persistent_cough", "screening_letter", "other_concern"], id: \.self) { symptom in
+                    Toggle(t(symptom), isOn: Binding(get: { model.selectedSymptoms.contains(symptom) }, set: { selected in
+                        if selected { model.selectedSymptoms.insert(symptom) } else { model.selectedSymptoms.remove(symptom) }
+                        updateProfile()
+                    })).toggleStyle(.edgeCareCheckRow)
+                }
             }
-            Picker(t("profileDuration"), selection: $model.duration) {
-                if model.isUpdatingReferral { Text(model.clinicalProfile.durationEnglish).tag("keep_existing") }
-                Text(t("unsure")).tag("unknown")
-                Text(t("shortDuration")).tag("less_than_three_weeks")
-                Text(t("longDuration")).tag("three_weeks_or_longer")
-            }.pickerStyle(.menu).onChange(of: model.duration) { _, _ in updateProfile() }
-            Picker(t("severity"), selection: $model.severity) {
-                Text(t("unsure")).tag("unknown")
-                Text(t("mild")).tag("mild")
-                Text(t("moderate")).tag("moderate")
-                Text(t("severe")).tag("severe")
-            }.pickerStyle(.menu).onChange(of: model.severity) { _, _ in updateProfile() }
-            TextField(t("optionalNotes"), text: $model.concern, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder)
+            let layout = landscape ? AnyLayout(HStackLayout(spacing: 24)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            layout {
+                VStack(alignment: .leading, spacing: 4) {
+                    if landscape { Text(t("profileDuration")).font(.subheadline.weight(.medium)) }
+                    Picker(t("profileDuration"), selection: $model.duration) {
+                        if model.isUpdatingReferral { Text(model.clinicalProfile.durationEnglish).tag("keep_existing") }
+                        Text(t("unsure")).tag("unknown")
+                        Text(t("shortDuration")).tag("less_than_three_weeks")
+                        Text(t("longDuration")).tag("three_weeks_or_longer")
+                    }.pickerStyle(.menu).onChange(of: model.duration) { _, _ in updateProfile() }
+                }.frame(maxWidth: landscape ? .infinity : nil, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    if landscape { Text(t("severity")).font(.subheadline.weight(.medium)) }
+                    Picker(t("severity"), selection: $model.severity) {
+                        Text(t("unsure")).tag("unknown")
+                        Text(t("mild")).tag("mild")
+                        Text(t("moderate")).tag("moderate")
+                        Text(t("severe")).tag("severe")
+                    }.pickerStyle(.menu).onChange(of: model.severity) { _, _ in updateProfile() }
+                }.frame(maxWidth: landscape ? .infinity : nil, alignment: .leading)
+            }
+            TextField(t("optionalNotes"), text: $model.concern, axis: .vertical)
+                .lineLimit(landscape ? 2...4 : 3...8).textFieldStyle(.roundedBorder)
             if !compact { Text(t("formProfileHint")).font(.footnote).foregroundStyle(.secondary) }
         }
     }

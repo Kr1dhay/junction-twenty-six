@@ -183,6 +183,19 @@ public struct EdgeCareStatusPill: View {
 
 // MARK: - Buttons
 
+/// Set only by the wide, landscape kiosk. Accessibility sizes keep the roomy,
+/// single-column layout and scrolling rather than clamping Dynamic Type.
+private struct EdgeCareCompactLayoutKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var edgeCareCompactLayout: Bool {
+        get { self[EdgeCareCompactLayoutKey.self] }
+        set { self[EdgeCareCompactLayoutKey.self] = newValue }
+    }
+}
+
 /// Filled mulberry capsule; the one main action on a screen.
 public struct EdgeCarePrimaryButtonStyle: ButtonStyle {
     public init() {}
@@ -191,11 +204,12 @@ public struct EdgeCarePrimaryButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @Environment(\.edgeCareCompactLayout) private var compact
         var body: some View {
             configuration.label
-                .font(.headline).foregroundStyle(.white).multilineTextAlignment(.center)
-                .padding(.horizontal, 24).padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 52)
+                .font(compact ? .subheadline.bold() : .headline).foregroundStyle(.white).multilineTextAlignment(.center)
+                .padding(.horizontal, 24).padding(.vertical, compact ? 10 : 12)
+                .frame(maxWidth: .infinity, minHeight: compact ? 48 : 52)
                 .background(Capsule().fill(EdgeCareStyle.mulberry))
                 .contentShape(Capsule())
                 .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1) : 0.4)
@@ -214,12 +228,13 @@ public struct EdgeCareSecondaryButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let fullWidth: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.edgeCareCompactLayout) private var compact
         var body: some View {
             let color = configuration.role == .destructive ? Color.red : EdgeCareStyle.accent
             configuration.label
-                .font(.body.weight(.semibold)).foregroundStyle(color).multilineTextAlignment(.center)
+                .font((compact ? Font.subheadline : .body).weight(.semibold)).foregroundStyle(color).multilineTextAlignment(.center)
                 .padding(.horizontal, 20).padding(.vertical, 10)
-                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: 48)
+                .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: compact ? 44 : 48)
                 .background(Capsule().fill(configuration.isPressed ? EdgeCareStyle.blush : EdgeCareStyle.card))
                 .overlay(Capsule().strokeBorder(color.opacity(0.85), lineWidth: 1.5))
                 .contentShape(Capsule())
@@ -237,12 +252,13 @@ public struct EdgeCareRowButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let selected: Bool
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.edgeCareCompactLayout) private var compact
         var body: some View {
             let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
             configuration.label
-                .font(.body.weight(.medium)).foregroundStyle(EdgeCareStyle.graphite).multilineTextAlignment(.leading)
-                .padding(.horizontal, 16).padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                .font((compact ? Font.subheadline : .body).weight(.medium)).foregroundStyle(EdgeCareStyle.graphite).multilineTextAlignment(.leading)
+                .padding(.horizontal, 16).padding(.vertical, compact ? 10 : 12)
+                .frame(maxWidth: .infinity, minHeight: compact ? 48 : 56, alignment: .leading)
                 .background(shape.fill(selected || configuration.isPressed ? EdgeCareStyle.blush : EdgeCareStyle.surface))
                 .overlay(shape.strokeBorder(selected ? EdgeCareStyle.accent.opacity(0.6) : .clear, lineWidth: 1.5))
                 .contentShape(shape)
@@ -255,9 +271,10 @@ public struct EdgeCareRowButtonStyle: ButtonStyle {
 /// the others are outlined (English / Suomi on the kiosk study).
 struct LanguageChipStyle: ButtonStyle {
     let selected: Bool
+    @Environment(\.edgeCareCompactLayout) private var compact
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.weight(.semibold))
+            .font((compact ? Font.subheadline : .body).weight(.semibold))
             .foregroundStyle(selected ? Color.white : EdgeCareStyle.accent)
             .padding(.horizontal, 16)
             .frame(minHeight: 48)

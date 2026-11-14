@@ -1,5 +1,45 @@
 # EDI + Gemini visual review
 
+## Landscape fit
+
+The wide kiosk uses a compact layout only in landscape at widths of at least
+900 points, and never at accessibility Dynamic Type sizes. Normal labels use
+subheadline sizing, headings use title2, and page spacing is tighter. Text still
+scales with Dynamic Type; portrait, narrow windows, and accessibility sizes keep
+the single-column layout and scrolling. Styled actions and option rows keep
+touch targets of at least 44 points; the signature canvas keeps its full height.
+
+The structured intake uses a two-column symptom grid. Signature/code creation,
+booking verification, and existing-referral verification use the available
+horizontal space rather than making patients scroll through stacked fields.
+Voice setup places consent beside the microphone without shrinking the large
+microphone control. Full-screen voice uses smaller landscape headings/hints and
+a side-by-side, still-scrollable dialogue panel so the pause action stays visible.
+Both microphone controls have an outlined, raised button surface, a visible
+action label, and pressed feedback; busy-state microphone illustrations do not
+use that interactive treatment. Disabled controls remain visibly disabled.
+Expanded secondary information, long patient-entered text,
+the keyboard, and recovery/error states may still require scrolling.
+
+Geometry regressions check complete control frames before any scrolling or
+tapping, not only XCTest hittability (which can automatically scroll a control
+into view). No test submits a referral, verifies real credentials, or grants
+cloud voice consent.
+
+Verification: 28 focused unit tests pass. Geometry checks pass at 1180×820 for
+the structured intake, voice setup, routine safety questions, optional context,
+guidance, signature/code creation, booking verification, and existing-referral
+verification. The translated forms, accessibility single-column scrolling,
+portrait accessibility voice, and emergency guidance also pass. Reviewed the
+English, Arabic and Russian form captures, the sealing page, and the outlined
+microphone controls. Final checks run on a separate review simulator so kiosk
+interaction cannot affect their results. Expanded content and keyboard layouts
+are intentionally not covered by the no-scroll assertions.
+The final rebuilt app also passes all five full-screen voice-state checks with
+the pause action fully onscreen, microphone button dimensions of at least
+240×240 points, and successful read-aloud playback. These are presentation tests,
+not a new live Gemini audio or speaker-echo validation.
+
 ## Kiosk decluttering
 
 Patient-facing kiosk pages prioritize the current question, next action, and

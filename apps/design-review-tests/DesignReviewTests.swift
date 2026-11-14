@@ -38,6 +38,105 @@ import XCTest
     private func text(_ label: String, in app: XCUIApplication) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
+    /// Hittability alone is insufficient: XCTest may automatically scroll before
+    /// tapping. Check the entire frame before any scrolling or interaction.
+    private func assertFits(_ element: XCUIElement, in app: XCUIApplication,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(element.waitForExistence(timeout: 5), file: file, line: line)
+        let viewport = app.windows.firstMatch.frame
+        let frame = element.frame
+        XCTAssertGreaterThan(frame.height, 0, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(frame.minY, app.navigationBars.firstMatch.frame.maxY - 1, element.label, file: file, line: line)
+        XCTAssertLessThanOrEqual(frame.maxY, viewport.maxY - 20, element.label, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(frame.minX, viewport.minX, element.label, file: file, line: line)
+        XCTAssertLessThanOrEqual(frame.maxX, viewport.maxX, element.label, file: file, line: line)
+    }
+
+    func testLandscapeFormAndVoiceFitWithoutScrolling() {
+        let app = launch()
+        assertFits(app.buttons["Create a new referral"], in: app)
+        assertFits(app.buttons["Book an appointment"], in: app)
+        app.buttons["Create a new referral"].tap()
+        for label in ["A new or changing skin concern", "A new lump or swelling", "Unexplained bleeding",
+                      "A persistent cough", "Understanding a screening letter", "Another health concern"] {
+            assertFits(app.switches[label], in: app)
+            XCTAssertGreaterThanOrEqual(app.switches[label].frame.height, 44)
+        }
+        assertFits(app.textFields["Optional notes in your language"], in: app)
+        assertFits(app.buttons["Continue"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        capture("15-landscape-form-fit")
+        app.segmentedControls.buttons["Voice conversation"].tap()
+        assertFits(app.buttons["Start conversation"], in: app)
+        assertFits(app.buttons["Use the offline form"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        XCTAssertGreaterThanOrEqual(app.buttons["Start conversation"].frame.height, 200)
+        XCTAssertFalse(app.buttons["Start conversation"].isEnabled)
+        capture("16-landscape-voice-fit")
+    }
+
+    func testLandscapeReferralPagesFitWithoutScrolling() {
+        let app = launch()
+        app.buttons["Create a new referral"].tap()
+        app.switches["Another health concern"].tap()
+        app.buttons["Continue"].tap()
+        for _ in 0..<12 {
+            if app.staticTexts["Add context, if you want"].exists { break }
+            assertFits(app.buttons["No"], in: app)
+            assertFits(app.buttons["Finish and clear session"], in: app)
+            app.buttons["No"].tap()
+        }
+        assertFits(app.buttons["Continue"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        capture("17-landscape-context-fit")
+        app.buttons["Continue"].tap()
+        assertFits(app.buttons["Create a private referral"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        capture("18-landscape-guidance-fit")
+        app.buttons["Create a private referral"].tap()
+        assertFits(app.descendants(matching: .any).matching(identifier: "signatureCanvas").firstMatch, in: app)
+        assertFits(app.staticTexts["Choose a 4-digit code"], in: app)
+        assertFits(app.staticTexts["Enter the code again"], in: app)
+        assertFits(text("There is no code reset. If you forget your code, you lose access to this referral. No name, phone or account can recover it.", in: app), in: app)
+        assertFits(app.switches["I understand and will remember my code"], in: app)
+        assertFits(app.buttons["Create a private referral"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        capture("19-landscape-sealing-fit")
+        // Never submit a referral or use sample credentials.
+    }
+
+    func testLandscapeVerificationPagesFitWithoutScrolling() {
+        let app = launch()
+        app.buttons["Book an appointment"].tap()
+        assertFits(app.staticTexts["Enter your 4-digit code"], in: app)
+        assertFits(app.descendants(matching: .any).matching(identifier: "signatureCanvas").firstMatch, in: app)
+        assertFits(app.buttons["Verify and load my referral"], in: app)
+        assertFits(app.buttons["Finish and clear session"], in: app)
+        capture("20-landscape-booking-fit")
+        app.buttons["Cancel"].tap()
+        app.buttons["Update an existing referral"].tap()
+        assertFits(app.staticTexts["Enter your 4-digit code"], in: app)
+        assertFits(app.descendants(matching: .any).matching(identifier: "signatureCanvas").firstMatch, in: app)
+        assertFits(app.buttons["Verify and load my referral"], in: app)
+        assertFits(app.buttons["Cancel"], in: app)
+        capture("21-landscape-update-fit")
+    }
+
+    func testLandscapeFormFitsInEveryLanguage() {
+        for (language, heading) in [("Suomi", "Mikä huolestuttaa sinua?"), ("Soomaali", "Maxaa ku welwelinaya?"),
+                                    ("العربية", "ما الذي يقلقك؟"), ("Русский", "Что вас беспокоит?")] {
+            let app = launch()
+            app.buttons[language].tap()
+            app.buttons["intakePrimaryAction"].tap()
+            XCTAssertTrue(app.staticTexts[heading].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.switches.count, 6)
+            for symptom in app.switches.allElementsBoundByIndex { assertFits(symptom, in: app) }
+            assertFits(app.buttons["intakePrimaryAction"], in: app)
+            assertFits(app.buttons["intakeEndSession"], in: app)
+            capture("23-landscape-form-" + language)
+            app.terminate()
+        }
+    }
 
     func testGuidanceIsDeclutteredAndSourcesRemainAvailable() {
         let app = launch()
@@ -119,9 +218,14 @@ import XCTest
             XCTAssertEqual(app.staticTexts["voiceStageTitle"].label, title)
             capture("07-fullscreen-" + phase)
             XCTAssertTrue(app.buttons["voiceBack"].isHittable)
+            XCTAssertLessThanOrEqual(app.buttons["voicePause"].frame.maxY,
+                                     app.windows.firstMatch.frame.maxY - 20,
+                                     "Full-screen voice controls must fit without scrolling: " + phase)
             XCTAssertFalse(app.segmentedControls.buttons["Voice conversation"].isHittable)
             if phase == "listening" || phase == "speaking" {
-                XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.height, 200)
+                XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.height, 240)
+                XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.width, 240)
+                XCTAssertFalse(app.buttons["voiceMicrophone"].label.isEmpty)
             }
             if phase == "speaking" {
                 XCTAssertTrue(text("Tap the microphone to interrupt. Your microphone is paused while Edi speaks and resumes automatically afterward.", in: app).exists)
@@ -177,6 +281,20 @@ import XCTest
         }
         XCTAssertTrue(app.buttons["Create a new referral"].isHittable)
         capture("04b-accessibility-actions")
+    }
+
+    func testFormAtAccessibilityTextSizeKeepsSingleColumnAndScrolling() {
+        let app = launch(largeText: true)
+        tap("Create a new referral", in: app)
+        let first = app.switches["A new or changing skin concern"]
+        let second = app.switches["A new lump or swelling"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        XCTAssertEqual(first.frame.minX, second.frame.minX, accuracy: 1)
+        XCTAssertGreaterThan(second.frame.minY, first.frame.minY)
+        tap("Another health concern", in: app, toggle: true)
+        capture("22-accessibility-form-scroll")
+        tap("Continue", in: app)
+        XCTAssertTrue(app.buttons["No"].waitForExistence(timeout: 5))
     }
 
     func testArabicWelcome() {

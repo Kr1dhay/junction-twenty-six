@@ -189,6 +189,24 @@ import EdgeCareCore
 
 public struct IntakeView: View {
     private let title: String
+    private let model: IntakeViewModel
+    private let app: AppSession
+    private let kiosk: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    public init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
+        self.title = title; self.model = model; self.app = app; self.kiosk = kiosk
+    }
+    public var body: some View {
+        GeometryReader { geometry in
+            IntakeLayoutView(title: title, model: model, app: app, kiosk: kiosk)
+                .environment(\.edgeCareCompactLayout, kiosk && geometry.size.width >= 900 &&
+                             geometry.size.width > geometry.size.height && !dynamicTypeSize.isAccessibilitySize)
+        }
+    }
+}
+
+private struct IntakeLayoutView: View {
+    private let title: String
     @Bindable private var model: IntakeViewModel
     @Bindable private var app: AppSession
     private let kiosk: Bool
@@ -198,14 +216,15 @@ public struct IntakeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.edgeCareCompactLayout) private var compact
     private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-    public init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
+    init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
         self.title = title; self.model = model; self.app = app; self.kiosk = kiosk
     }
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
-    public var body: some View {
+    var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: compact ? 12 : 24) {
                 if kiosk {
                     languagePicker.frame(maxWidth: .infinity, alignment: .trailing)
                 } else {
@@ -239,14 +258,17 @@ public struct IntakeView: View {
                         }
                         Spacer()
                         Button(t("end"), role: .destructive) { reset() }.buttonStyle(.edgeCareSecondary)
+                            .accessibilityIdentifier("intakeEndSession")
                     }
                 }
                 if kiosk && idleSoon {
                     Text(t("idleSoon")).font(.footnote).accessibilityAddTraits(.updatesFrequently)
                 }
             }
-            .padding(24).frame(maxWidth: kiosk && model.step == 0 ? 980 : 720).frame(maxWidth: .infinity)
+            .padding(compact ? 20 : 24)
+            .frame(maxWidth: compact ? 1020 : kiosk && model.step == 0 ? 980 : 720).frame(maxWidth: .infinity)
         }
+        .font(compact ? .subheadline : .body)
         .background(EdgeCareBackground())
         .navigationTitle(title)
         #if os(iOS)
@@ -355,7 +377,7 @@ public struct IntakeView: View {
         case 5:
             guideHeading(t("guidance"), pose: .nextStep)
             if let guidance = model.guidance {
-                Text(guidance.message).font(.title3)
+                Text(guidance.message).font(compact ? .body : .title3)
                 if !kiosk { Text(t("review")).font(.subheadline).foregroundStyle(.secondary) }
                 speechControls(prompt: guidance.message, input: false)
                 if !kiosk { safetySources }
@@ -377,18 +399,20 @@ public struct IntakeView: View {
                 primary(t("saveUpdate")) { Task { await model.enroll(using: app) } }.disabled(model.busy || app.session == nil)
             } else {
                 heading(t("seal"))
-                Text(t("signature")).font(.headline)
-                SignaturePad(strokes: $model.strokes, language: model.language)
-                PINField(title: t("pin"), value: $model.passcode)
-                PINField(title: t("confirmPin"), value: $model.confirmation)
-                Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark").font(.body.weight(.medium))
+                credentialFields
+                Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark")
+                    .font((compact ? Font.subheadline : .body).weight(.medium))
                 Toggle(t("understand"), isOn: $model.understood).padding(.vertical, 8)
-                speechControls(prompt: t("noReset"), input: false)
                 if model.passcode.count == 4 && model.confirmation.count == 4 && model.passcode != model.confirmation {
                     Text(t("pinMismatch")).foregroundStyle(.red)
                 }
-                primary(t("seal")) { Task { await model.enroll(using: app) } }
-                    .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
+                let actions = compact ? AnyLayout(HStackLayout(alignment: .top, spacing: 24)) :
+                    AnyLayout(VStackLayout(alignment: .leading, spacing: 24))
+                actions {
+                    speechControls(prompt: t("noReset"), input: false)
+                    primary(t("seal")) { Task { await model.enroll(using: app) } }
+                        .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
+                }
                 if !kiosk {
                     DisclosureGroup(t("demoDisclosure")) {
                         Text(t("demoDetail")).font(.caption)
@@ -415,7 +439,21 @@ public struct IntakeView: View {
         default: EmptyView()
         }
     }
-    private func heading(_ text: String) -> some View { Text(text).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
+    private var credentialFields: some View {
+        let layout = compact ? AnyLayout(HStackLayout(alignment: .top, spacing: 32)) :
+            AnyLayout(VStackLayout(alignment: .leading, spacing: 24))
+        return layout {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(t("signature")).font(.headline)
+                SignaturePad(strokes: $model.strokes, language: model.language)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: compact ? 20 : 24) {
+                PINField(title: t("pin"), value: $model.passcode)
+                PINField(title: t("confirmPin"), value: $model.confirmation)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private func heading(_ text: String) -> some View { Text(text).font((compact ? Font.title2 : .largeTitle).weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
     private var languagePicker: some View {
         Picker(t("language"), selection: Binding(get: { model.language }, set: { model.languageChosen = true; model.language = $0 })) {
             ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
@@ -425,18 +463,18 @@ public struct IntakeView: View {
     /// Heading with Edi beside it, as on the patient intake study.
     private func guideHeading(_ text: String, pose: EdiView.Pose) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            EdiView(pose: pose).frame(width: 64, height: 66)
+            EdiView(pose: pose).frame(width: compact ? 48 : 64, height: compact ? 50 : 66)
             heading(text)
         }
     }
     private func primary(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title) }
-            .buttonStyle(.edgeCarePrimary).disabled(model.busy)
+            .buttonStyle(.edgeCarePrimary).disabled(model.busy).accessibilityIdentifier("intakePrimaryAction")
     }
     private var welcomeIntro: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: compact ? 14 : 20) {
             heading(t("welcome"))
-            Text(t("anonymous")).font(.title3.weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
+            Text(t("anonymous")).font((compact ? Font.body : .title3).weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
             if !kiosk { Text(t("privacy")).foregroundStyle(.secondary) }
             Text(t("language")).font(.headline).foregroundStyle(EdgeCareStyle.graphite)
             if dynamicTypeSize.isAccessibilitySize {
@@ -482,7 +520,7 @@ public struct IntakeView: View {
         }.padding(16).background(.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
     private func safetyQuestion(_ question: SafetyQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: compact ? 12 : 20) {
             if !kiosk { Text(t("tailoredSafety")).font(.subheadline).foregroundStyle(.secondary) }
             Text("\(model.safety.currentIndex + 1) / \(model.safety.totalCount)").font(.caption)
             guideHeading(t(question.copyKey), pose: .listening)

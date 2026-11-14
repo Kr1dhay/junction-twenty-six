@@ -21,20 +21,21 @@ import EdgeCareCore
     @State private var generation = 0
     @State private var task: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.edgeCareCompactLayout) private var compact
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: compact ? 12 : 20) {
             HStack(spacing: 16) {
-                EdiView(pose: .nextStep).frame(width: 64, height: 66)
-                Text(t("bookAppointment")).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+                EdiView(pose: .nextStep).frame(width: compact ? 48 : 64, height: compact ? 50 : 66)
+                Text(t("bookAppointment")).font((compact ? Font.title2 : .largeTitle).weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
             }
             Text(t(model.source == .kiosk ? "appointmentNotice" : "demoBookingNotice")).font(.subheadline).foregroundStyle(.secondary)
             if !app.connected {
                 Text(t("bookingConnectionRequired"))
             } else if record == nil {
                 Text(t("verifyToBook"))
-                PINField(title: t("enterPin"), value: $passcode)
-                SignaturePad(strokes: $strokes, language: model.language).id(generation)
+                ReferralVerificationFields(title: t("enterPin"), passcode: $passcode, strokes: $strokes,
+                                           language: model.language).id(generation)
                 Button(t("findExisting")) { find() }.buttonStyle(.edgeCarePrimary)
                     .disabled(busy || app.session == nil || passcode.count != 4 || strokes.flatMap { $0 }.count < 4)
                 ForEach(candidates, id: \.record.id) { candidate in
