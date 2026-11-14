@@ -6,7 +6,7 @@ final class GuidanceCopyTests: XCTestCase {
         for (language, caution) in [
             ("en", "cannot diagnose or rule out cancer"), ("fi", "eivät totea eivätkä sulje pois syöpää"),
             ("so", "ma xaqiijin karaan mana diidi karaan kansar"), ("ar", "لا تشخّص السرطان ولا تستبعده"),
-            ("ru", "не могут диагностировать или исключить рак")
+            ("ru", "не могут диагностировать или исключить рак"), ("ne", "क्यान्सरको निदान गर्न वा यसलाई खारेज गर्न सक्दैन")
         ] {
             let guidance = try await OnDeviceTriageEngine().guidance(for: "new mole [urgent_now=no]", language: language)
             XCTAssertTrue(guidance.message.contains(caution))
@@ -21,7 +21,7 @@ final class GuidanceCopyTests: XCTestCase {
     }
 
     func testEmergencyAndScreeningLetterActionsAreNotRemoved() async throws {
-        for language in ["en", "fi", "so", "ar", "ru"] {
+        for language in ["en", "fi", "so", "ar", "ru", "ne"] {
             let emergency = try await OnDeviceTriageEngine().guidance(for: "[urgent_now=yes]", language: language)
             XCTAssertTrue(emergency.message.contains("112"))
             XCTAssertTrue(emergency.requiresEmergencyHelp)

@@ -65,7 +65,7 @@ import PhotosUI
         #endif
     }
     static func locale(_ language: String) -> String {
-        ["en": "en-GB", "fi": "fi-FI", "so": "so-SO", "ar": "ar-SA", "ru": "ru-RU"][String(language.lowercased().prefix(2))] ?? language
+        ["en": "en-GB", "fi": "fi-FI", "so": "so-SO", "ar": "ar-SA", "ru": "ru-RU", "ne": "ne-NP"][String(language.lowercased().prefix(2))] ?? language
     }
     func start(language: String, onText: @escaping @MainActor @Sendable (String) -> Void) async {
         #if os(iOS)

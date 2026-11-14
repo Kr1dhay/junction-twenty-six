@@ -12,7 +12,7 @@ import { byLongestWaiting, formatWait, overdue, reviewAfterDays, waitingSummary,
 const DigitalTwin = dynamic(() => import("./digital-twin").then(module => module.DigitalTwin), { ssr: false, loading: () => <p className="twin-loading">Loading the digital twin…</p> });
 const pageTitles = { referrals: "Referrals", equity: "Equity actions", twin: "Digital twin" } as const;
 
-const languages: Record<string, string> = { en: "English", fi: "Finnish", so: "Somali", ar: "Arabic", ru: "Russian", ku: "Kurdish" };
+const languages: Record<string, string> = { en: "English", fi: "Finnish", so: "Somali", ar: "Arabic", ru: "Russian", ne: "Nepali", ku: "Kurdish" };
 const statusLabels = { open: "Awaiting verification", spent: "Verified · used", expired: "Expired" };
 const date = (value: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(value));
 const time = (value: string) => new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(new Date(value));
