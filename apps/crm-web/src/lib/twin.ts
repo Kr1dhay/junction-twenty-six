@@ -1,327 +1,399 @@
-import snapshotJSON from "./twin-snapshot.json";
-
 /**
- * Access digital twin for Helsinki primary care.
+ * Access digital twin for mainland Finland's public primary care.
  *
- * Geography is public, area-level data (see twin-snapshot.json `sources`): a 250 m resident grid,
- * sub-district shares of residents with a foreign mother tongue and residents aged 75+, and the
- * city's health stations with their published opening hours. No patient, referral, nationality or
- * immigration-status data is used. Clinician numbers, interpreting coverage and the share of people
- * who need evening appointments are not published, so they are planning assumptions the user sets.
+ * Geography is public aggregate data (see twin-snapshot.json `sources`): residents and residents aged 65+
+ * per 2 km square, each municipality's share of foreign-language speakers, GP visits per 1,000 residents and
+ * waits over 7 days, health stations, and villages. No patient, referral, nationality, citizenship or
+ * immigration-status data is used.
  *
- * Accessibility uses the enhanced two-step floating catchment area method (E2SFCA, Luo & Qi 2009)
- * with a Gaussian travel-time decay. Travel times are estimates from straight-line distance, not a
- * journey planner.
+ * Every figure answers a plain question in plain units:
+ *   - How far is care?           minutes to the nearest open health station, by car or without a car
+ *   - Is there enough care?      GP visits a year within reach, per 1,000 residents (E2SFCA, Luo & Qi 2009)
+ *   - Who needs language help?   foreign-language speakers per square (municipal share × residents)
+ * Travel times are estimates from straight-line distance with a road detour, not a route planner.
  */
 
-export type Area = { id: number; name: string; population: number; foreign_language: number; aged_75: number };
-export type Station = { id: number; name: string; full_name: string; lon: number; lat: number; hours: { day: number; extended: number };
-  wheelchair_shortcomings: number | null; url: string | null };
-export type Library = { id: number; name: string; lon: number; lat: number };
+export type Municipality = { code: string; name: string; county: number; foreign_language: number; gp_visits_per_1000: number; wait_over_7_days: number | null };
+export type Station = { id: number; name: string; lon: number; lat: number; muni: number; hours: { day: number; extended: number } | null; source: "ptv" | "osm" };
+export type Stop = { id: number; name: string; lon: number; lat: number };
 export type Source = { id: string; title: string; publisher: string; licence: string; url: string };
-export type TwinData = { generated_at: string; region: string; sources: Source[]; cell_size_m: number; areas: Area[];
-  cells: [number, number, number, number][]; stations: Station[]; libraries: Library[] };
-export const twinData = snapshotJSON as TwinData;
+export type TwinData = { generated_at: string; region: string; sources: Source[]; cell_km: number; counties: { name: string; name_fi: string }[];
+  municipalities: Municipality[]; cells: [number, number, number, number, number][]; stations: Station[]; stops: Stop[] };
 
-export type GroupID = "everyone" | "language" | "step_free" | "extended";
-export const groups: { id: GroupID; label: string; detail: string }[] = [
-  { id: "everyone", label: "Everyone", detail: "All residents in the 250 m population grid." },
-  { id: "language", label: "May need an interpreter", detail: "Residents whose mother tongue is not Finnish, Sami or Swedish, by sub-district. A proxy: many of them need no interpreter." },
-  { id: "step_free", label: "Needs a step-free route", detail: "Residents aged 75 or over, by sub-district. A proxy for reduced mobility." },
-  { id: "extended", label: "Needs evening or Saturday hours", detail: "A planning share of residents who cannot attend on weekdays between 8 and 16." },
-];
-
-export type Assumptions = {
-  /** Clinicians per health station in an ordinary week. Not published; set locally. */
-  clinicians: number;
-  /** Clinician hours of appointments per week. */
-  hoursPerClinician: number;
-  /** Share of language-support needs a station meets with phone or video interpreting alone. */
-  remoteInterpreting: number;
-  /** Share of residents who need appointments outside weekdays 8–16. */
-  extendedNeed: number;
-  /** Weekly hours of a mobile clinic with one clinician; half of them outside weekdays 8–16. */
-  vehicleHours: number;
-  /** Share of a station's clinicians absent in a typical week (sick leave, vacancies). */
-  absence: number;
+export type Resource = "gp" | "interpreter" | "clinic";
+export const resources: Record<Resource, { label: string; short: string; place: string; unit: string; why: string }> = {
+  gp: { label: "One more GP", short: "GP", place: "at a health station", unit: "need-weighted visits a year",
+    why: "A GP adds appointments. They help most where many people share few appointments." },
+  interpreter: { label: "One on-site interpreter", short: "Interpreter", place: "at a health station", unit: "foreign-language speakers have this as their nearest station",
+    why: "An interpreter helps everyone whose nearest health station it is, if they can get there within 30 minutes." },
+  clinic: { label: "One mobile clinic stop", short: "Mobile clinic", place: "in a village one day a week", unit: "people brought within 30 minutes of care",
+    why: "A mobile clinic helps people who are far from any health station." },
 };
-export const defaultAssumptions: Assumptions = { clinicians: 8, hoursPerClinician: 30, remoteInterpreting: 0.5, extendedNeed: 0.25, vehicleHours: 30, absence: 0.12 };
 
-export type Disruptions = { transitStrike: boolean; remoteInterpretingDown: boolean; closed: number[] };
-export const noDisruptions: Disruptions = { transitStrike: false, remoteInterpretingDown: false, closed: [] };
+export type Settings = {
+  /** Snow and ice: every road and bus trip takes 30% longer. */ storm: boolean;
+  /** No buses: people without a car can only walk. */ busStrike: boolean;
+  /** Station ids closed in this scenario. */ closed: number[];
+  /** GP visits one extra full-time GP provides in a year (planning assumption). */ gpVisits: number;
+  /** Share of residents aged 65+ who travel without a car (planning assumption). */ noCar65: number;
+};
+export const defaultSettings: Settings = { storm: false, busStrike: false, closed: [], gpVisits: 3500, noCar65: 0.35 };
 
-export type Resource = "clinician" | "interpreter" | "vehicle";
-export const resources: { id: Resource; label: string; unit: string }[] = [
-  { id: "clinician", label: "One extra clinician", unit: "at a health station" },
-  { id: "interpreter", label: "One on-site interpreter", unit: "at a health station" },
-  { id: "vehicle", label: "One mobile clinic", unit: "parked at a public library" },
-];
-
-// Travel model: estimates from straight-line distance with a street detour factor.
-export const travel = { walkKmh: 4.8, stepFreeKmh: 3.2, detour: 1.3, stepFreeDetour: 1.45, transitKmh: 19, transitWaitMin: 9, stepFreeTransitExtraMin: 6, catchmentMin: 40 };
-const R = 6371;
-function km(aLon: number, aLat: number, bLon: number, bLat: number) {
-  const dLat = (bLat - aLat) * Math.PI / 180, dLon = (bLon - aLon) * Math.PI / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * Math.PI / 180) * Math.cos(bLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
+// ---- Travel ------------------------------------------------------------------------------------------
+export const travel = { detour: 1.3, carKmh: { urban: 30, town: 50, rural: 70 }, carExtraMin: 4, walkKmh: 4.8,
+  busKmh: 30, busWaitMin: { urban: 8, town: 25, rural: 60 }, busExtraMin: 6, catchmentMin: 30, stormFactor: 1.3, nearby: 10 };
+export type Density = 0 | 1 | 2; // urban, town, rural
+const densityKey = ["urban", "town", "rural"] as const;
+/** Settlement type from residents per km²: urban ≥ 1,000, town ≥ 100, otherwise rural. */
+export const density = (residents: number, cellKm: number): Density => { const perKm2 = residents / (cellKm * cellKm); return perKm2 >= 1000 ? 0 : perKm2 >= 100 ? 1 : 2; };
+export function carMinutes(distanceKm: number, from: Density, slow = 1) {
+  return travel.carExtraMin + distanceKm * travel.detour / travel.carKmh[densityKey[from]] * 60 * slow;
 }
-/** Door-to-door minutes, choosing the faster of walking and public transport. */
-export function minutes(distanceKm: number, stepFree: boolean, transit: boolean) {
-  const walk = distanceKm * (stepFree ? travel.stepFreeDetour : travel.detour) / (stepFree ? travel.stepFreeKmh : travel.walkKmh) * 60;
-  if (!transit) return walk;
-  const ride = travel.transitWaitMin + (stepFree ? travel.stepFreeTransitExtraMin : 0) + distanceKm * travel.detour / travel.transitKmh * 60;
-  return Math.min(walk, ride);
+export function noCarMinutes(distanceKm: number, from: Density, slow = 1, busStrike = false) {
+  const walk = distanceKm * travel.detour / travel.walkKmh * 60;
+  if (busStrike) return walk;
+  const bus = travel.busWaitMin[densityKey[from]] + travel.busExtraMin + distanceKm * travel.detour / travel.busKmh * 60 * slow;
+  return Math.min(walk, bus);
 }
 /** Gaussian decay from 1 at the door to 0 at the catchment edge. */
-export function decay(min: number, catchment = travel.catchmentMin) {
-  if (min >= catchment) return 0;
+export function decay(minutes: number, catchment = travel.catchmentMin) {
+  if (minutes >= catchment) return 0;
   const edge = Math.exp(-0.5);
-  return (Math.exp(-0.5 * (min / catchment) ** 2) - edge) / (1 - edge);
+  return (Math.exp(-0.5 * (minutes / catchment) ** 2) - edge) / (1 - edge);
+}
+export function km(aLon: number, aLat: number, bLon: number, bLat: number) {
+  const dLat = (bLat - aLat) * Math.PI / 180, dLon = (bLon - aLon) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * Math.PI / 180) * Math.cos(bLat * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 }
 
-export type Site = { kind: "station" | "library"; id: number; name: string; lon: number; lat: number;
-  /** Share of capacity outside weekdays 8–16. */ extendedShare: number;
-  /** Multiplier for the step-free group from published accessibility shortcomings. */ stepFreeFactor: number };
-export function stationSite(station: Station): Site {
-  const total = station.hours.day + station.hours.extended;
-  const shortcomings = station.wheelchair_shortcomings;
-  return { kind: "station", id: station.id, name: station.name, lon: station.lon, lat: station.lat, extendedShare: total ? station.hours.extended / total : 0,
-    stepFreeFactor: shortcomings === null ? 0.75 : shortcomings === 0 ? 1 : Math.max(0.4, 1 - 0.15 * shortcomings) };
+/**
+ * In towns several stations are about equally close. Each square's residents are split between the open
+ * stations within 5 km of its nearest one, nearer stations taking more (e-folding distance 1.5 km).
+ */
+const SPLIT_KM = 1.5, SPLIT_CUTOFF_KM = 5;
+function split(near: Int32Array, nearKm: Float32Array, K: number, i: number, open: (j: number) => boolean, out: Float32Array, offset: number) {
+  let nearestKm = Infinity, sum = 0;
+  for (let r = 0; r < K; r++) { const j = near[i * K + r]!; if (j >= 0 && open(j)) nearestKm = Math.min(nearestKm, nearKm[i * K + r]!); }
+  for (let r = 0; r < K; r++) {
+    const j = near[i * K + r]!, extra = nearKm[i * K + r]! - nearestKm;
+    out[offset + r] = j >= 0 && open(j) && extra <= SPLIT_CUTOFF_KM ? Math.exp(-extra / SPLIT_KM) : 0;
+    sum += out[offset + r]!;
+  }
+  if (sum) for (let r = 0; r < K; r++) out[offset + r]! /= sum;
 }
-// A mobile clinic works half its hours outside 8–16 and has a lift (planning assumptions).
-export const librarySite = (library: Library): Site => ({ kind: "library", id: library.id, name: library.name, lon: library.lon, lat: library.lat, extendedShare: 0.5, stepFreeFactor: 1 });
 
-/** Travel weights cell × site, for the two route types. Cached per travel multiplier and transit state. */
-export type Weights = { normal: Float32Array; stepFree: Float32Array; sites: number };
-export function buildWeights(data: TwinData, sites: Site[], transit: boolean, slowdown = 1): Weights {
-  const n = data.cells.length, m = sites.length;
-  const normal = new Float32Array(n * m), stepFree = new Float32Array(n * m);
+// ---- Prepared geometry --------------------------------------------------------------------------------
+/** Nearest stations per square, squares near each stop, and per-square demand; computed once. */
+export type Prepared = {
+  data: TwinData; n: number; m: number;
+  pop: Float64Array; p65: Float64Array; language: Float64Array; rate: Float64Array; density: Uint8Array; muni: Uint16Array;
+  /** K nearest stations per square: index and km, row-major n × K. */ near: Int32Array; nearKm: Float32Array; k: number;
+  /** Squares within 45 km of each stop (CSR). */ stopStart: Int32Array; stopCell: Int32Array; stopKm: Float32Array; stopMuni: Uint16Array;
+  /** Visits a year each station delivers today: the residents who use it × their municipality's published rate. */ capacity: Float64Array;
+  /** National GP visits a year per 1,000 residents. */ national: number;
+};
+
+class SpatialIndex {
+  private buckets = new Map<string, number[]>();
+  constructor(points: { lon: number; lat: number }[], private size = 0.25) { points.forEach((point, i) => this.bucket(point.lon, point.lat).push(i)); }
+  private bucket(lon: number, lat: number) {
+    const key = `${Math.floor(lon / (this.size * 2))}:${Math.floor(lat / this.size)}`;
+    let found = this.buckets.get(key);
+    if (!found) this.buckets.set(key, found = []);
+    return found;
+  }
+  /** Indices within `rings` buckets of the point (a bucket is about 28 km square). */
+  around(lon: number, lat: number, rings: number) {
+    const x = Math.floor(lon / (this.size * 2)), y = Math.floor(lat / this.size), out: number[] = [];
+    for (let dx = -rings; dx <= rings; dx++) for (let dy = -rings; dy <= rings; dy++) out.push(...(this.buckets.get(`${x + dx}:${y + dy}`) ?? []));
+    return out;
+  }
+}
+
+export function prepare(data: TwinData, k = travel.nearby): Prepared {
+  const n = data.cells.length, m = data.stations.length;
+  const pop = new Float64Array(n), p65 = new Float64Array(n), language = new Float64Array(n), rate = new Float64Array(n);
+  const dens = new Uint8Array(n), muni = new Uint16Array(n);
+  data.cells.forEach(([, , residents, aged, municipality], i) => {
+    const area = data.municipalities[municipality]!;
+    pop[i] = residents; p65[i] = aged; language[i] = residents * area.foreign_language; rate[i] = area.gp_visits_per_1000;
+    dens[i] = density(residents, data.cell_km); muni[i] = municipality;
+  });
+  const stationIndex = new SpatialIndex(data.stations);
+  const near = new Int32Array(n * k).fill(-1), nearKm = new Float32Array(n * k).fill(Infinity);
+  data.cells.forEach(([lon, lat], i) => {
+    let found: number[] = [];
+    for (let rings = 1; found.length < k && rings < 40; rings *= 2) found = stationIndex.around(lon, lat, rings);
+    const ranked = found.map(j => ({ j, d: km(lon, lat, data.stations[j]!.lon, data.stations[j]!.lat) })).sort((a, b) => a.d - b.d).slice(0, k);
+    ranked.forEach(({ j, d }, r) => { near[i * k + r] = j; nearKm[i * k + r] = d; });
+  });
+  const cellIndex = new SpatialIndex(data.cells.map(([lon, lat]) => ({ lon, lat })));
+  const stopStart = new Int32Array(data.stops.length + 1), stopMuni = new Uint16Array(data.stops.length), stopCell: number[] = [], stopKm: number[] = [];
+  data.stops.forEach((stop, s) => {
+    stopStart[s] = stopCell.length;
+    let closest = Infinity;
+    for (const i of cellIndex.around(stop.lon, stop.lat, 2)) {
+      const d = km(stop.lon, stop.lat, data.cells[i]![0], data.cells[i]![1]);
+      if (d <= 45) { stopCell.push(i); stopKm.push(d); }
+      if (d < closest) { closest = d; stopMuni[s] = muni[i]!; }
+    }
+  });
+  stopStart[data.stops.length] = stopCell.length;
+  const capacity = new Float64Array(m), share = new Float32Array(k);
+  let visits = 0, residents = 0;
   for (let i = 0; i < n; i++) {
-    const [lon, lat] = data.cells[i]!;
-    for (let j = 0; j < m; j++) {
-      const site = sites[j]!, d = km(lon, lat, site.lon, site.lat);
-      normal[i * m + j] = decay(minutes(d, false, transit) * slowdown);
-      stepFree[i * m + j] = decay(minutes(d, true, transit) * slowdown);
+    split(near, nearKm, k, i, () => true, share, 0);
+    for (let r = 0; r < k; r++) if (share[r]) capacity[near[i * k + r]!]! += pop[i]! * rate[i]! / 1000 * share[r]!;
+    visits += pop[i]! * rate[i]! / 1000; residents += pop[i]!;
+  }
+  return { data, n, m, pop, p65, language, rate, density: dens, muni, near, nearKm, k, stopStart, stopCell: Int32Array.from(stopCell), stopKm: Float32Array.from(stopKm), stopMuni,
+    capacity, national: visits / residents * 1000 };
+}
+
+// ---- One week's state ---------------------------------------------------------------------------------
+export type Week = {
+  slow: number; busStrike: boolean;
+  /** Nearest open station per square (-1 if none of the K nearest is open). */ nearest: Int32Array;
+  /** Share of each square's residents using each of its K nearest stations (n × K). */ share: Float32Array;
+  carMin: Float32Array; noCarMin: Float32Array;
+  /** GP visits a year within reach per 1,000 residents (E2SFCA). */ access: Float64Array;
+  capacity: Float64Array; reach: Float64Array; demand: Float64Array;
+  /** National visits per 1,000 residents in this week: "below average" is measured from this line. */ target: number;
+};
+export type Variation = { slow?: number; muniDemand?: Float64Array; capacityFactor?: Float64Array; extraClosed?: number; extraCapacity?: { station: number; visits: number } };
+
+export function week(p: Prepared, s: Settings, v: Variation = {}): Week {
+  const slow = (s.storm ? travel.stormFactor : 1) * (v.slow ?? 1), K = p.k;
+  const closed = new Set(s.closed);
+  if (v.extraClosed !== undefined) closed.add(v.extraClosed);
+  const demand = new Float64Array(p.n);
+  for (let i = 0; i < p.n; i++) demand[i] = p.pop[i]! * (v.muniDemand?.[p.muni[i]!] ?? 1);
+  const capacity = new Float64Array(p.m);
+  for (let j = 0; j < p.m; j++) capacity[j] = closed.has(p.data.stations[j]!.id) ? 0 : p.capacity[j]! * (v.capacityFactor?.[j] ?? 1);
+  if (v.extraCapacity) capacity[v.extraCapacity.station]! += v.extraCapacity.visits;
+  const nearest = new Int32Array(p.n).fill(-1), carMin = new Float32Array(p.n), noCarMin = new Float32Array(p.n);
+  const reach = new Float64Array(p.m), weights = new Float32Array(p.n * K), share = new Float32Array(p.n * K);
+  const open = (j: number) => capacity[j]! > 0;
+  for (let i = 0; i < p.n; i++) {
+    split(p.near, p.nearKm, K, i, open, share, i * K);
+    const from = p.density[i]! as Density;
+    let first = true;
+    for (let r = 0; r < K; r++) {
+      const j = p.near[i * K + r]!;
+      if (j < 0) break;
+      if (!capacity[j]) continue;
+      const d = p.nearKm[i * K + r]!, minutes = carMinutes(d, from, slow);
+      if (first) { nearest[i] = j; carMin[i] = minutes; noCarMin[i] = noCarMinutes(d, from, slow, s.busStrike); first = false; }
+      const w = decay(minutes);
+      weights[i * K + r] = w; reach[j]! += demand[i]! * w;
+    }
+    if (first) { carMin[i] = 999; noCarMin[i] = 999; }
+  }
+  const access = new Float64Array(p.n);
+  let supply = 0, people = 0;
+  for (let j = 0; j < p.m; j++) supply += capacity[j]!;
+  for (let i = 0; i < p.n; i++) {
+    people += demand[i]!;
+    let a = 0;
+    for (let r = 0; r < K; r++) { const w = weights[i * K + r]!; if (w) { const j = p.near[i * K + r]!; a += capacity[j]! / reach[j]! * w; } }
+    access[i] = a * 1000;
+  }
+  return { slow, busStrike: s.busStrike, nearest, share, carMin, noCarMin, access, capacity, reach, demand, target: supply / people * 1000 };
+}
+
+// ---- Headline numbers -----------------------------------------------------------------------------------
+export type Summary = { residents: number; farByCar: number; far65NoCar: number; belowCapacity: number; longWaits: number; language: number; languageFar: number; national: number };
+export function summary(p: Prepared, w: Week, county?: number): Summary {
+  let residents = 0, farByCar = 0, far65NoCar = 0, belowCapacity = 0, longWaits = 0, language = 0, languageFar = 0, visits = 0;
+  for (let i = 0; i < p.n; i++) {
+    const area = p.data.municipalities[p.muni[i]!]!;
+    if (county !== undefined && area.county !== county) continue;
+    const people = p.pop[i]!;
+    residents += people; language += p.language[i]!; visits += people * w.access[i]! / 1000;
+    if (w.carMin[i]! > 30) { farByCar += people; languageFar += p.language[i]!; }
+    if (w.noCarMin[i]! > 30) far65NoCar += p.p65[i]!;
+    if (w.access[i]! < 0.8 * w.target) belowCapacity += people;
+    if ((area.wait_over_7_days ?? 0) > 50) longWaits += people;
+  }
+  return { residents, farByCar, far65NoCar, belowCapacity, longWaits, language, languageFar, national: county === undefined ? w.target : visits / residents * 1000 };
+}
+
+// ---- Gains of one resource at each candidate place --------------------------------------------------------
+export const candidates = (p: Prepared, r: Resource) => r === "clinic" ? p.data.stops.length : p.m;
+export function stationName(data: TwinData, j: number) {
+  const station = data.stations[j]!, place = data.municipalities[station.muni]!.name;
+  return /^(terveysasema|hälsostation|terveyskeskus)$/i.test(station.name) ? `${station.name}, ${place}` : station.name;
+}
+export function candidatePlace(p: Prepared, r: Resource, c: number) {
+  if (r === "clinic") { const stop = p.data.stops[c]!; return { name: `${stop.name}, ${p.data.municipalities[p.stopMuni[c]!]!.name}`, lon: stop.lon, lat: stop.lat, muni: p.stopMuni[c]! }; }
+  const station = p.data.stations[c]!;
+  return { name: stationName(p.data, c), lon: station.lon, lat: station.lat, muni: station.muni };
+}
+
+/** People helped by a mobile clinic stop in one square: residents under 65 and drivers by car, the rest without a car. */
+function clinicBenefit(p: Prepared, w: Week, s: Settings, i: number, d: number) {
+  const from = p.density[i]! as Density, people = w.demand[i]!, ratio = p.pop[i]! ? people / p.pop[i]! : 0;
+  const older = p.p65[i]! * ratio, younger = people - older;
+  let helped = 0;
+  if (w.carMin[i]! > 30 && carMinutes(d, from, w.slow) <= 30) helped += younger + older * (1 - s.noCar65);
+  if (w.noCarMin[i]! > 30 && noCarMinutes(d, from, w.slow, w.busStrike) <= 30) helped += older * s.noCar65;
+  return helped;
+}
+
+/** Gain of placing the resource at every candidate, in the resource's own unit. */
+export function gains(p: Prepared, w: Week, s: Settings, r: Resource): Float64Array {
+  const K = p.k;
+  if (r === "clinic") {
+    const out = new Float64Array(p.data.stops.length);
+    for (let c = 0; c < out.length; c++) for (let q = p.stopStart[c]!; q < p.stopStart[c + 1]!; q++) out[c]! += clinicBenefit(p, w, s, p.stopCell[q]!, p.stopKm[q]!);
+    return out;
+  }
+  const out = new Float64Array(p.m);
+  if (r === "interpreter") {
+    for (let i = 0; i < p.n; i++) {
+      if (p.language[i]! < 0.5) continue;
+      const speakers = p.language[i]! * (p.pop[i]! ? w.demand[i]! / p.pop[i]! : 0), from = p.density[i]! as Density;
+      for (let r = 0; r < K; r++) {
+        const sh = w.share[i * K + r]!;
+        if (sh && carMinutes(p.nearKm[i * K + r]!, from, w.slow) <= 30) out[p.near[i * K + r]!]! += speakers * sh;
+      }
+    }
+    return out;
+  }
+  // GP: extra visits at j raise reachable visits by ΔS·w_ij / reach_j at every square that can reach j.
+  // Only visits that lift people towards the national average count, weighted by how far below it they are,
+  // so a GP ranks highest where the people who would see them have the fewest visits today.
+  for (let i = 0; i < p.n; i++) {
+    const shortfall = w.target - w.access[i]!;
+    if (shortfall <= 0) continue;
+    const from = p.density[i]! as Density;
+    for (let r2 = 0; r2 < K; r2++) {
+      const j = p.near[i * K + r2]!;
+      if (j < 0 || !w.capacity[j] || !w.reach[j]) continue;
+      const weight = decay(carMinutes(p.nearKm[i * K + r2]!, from, w.slow));
+      if (!weight) continue;
+      out[j]! += w.demand[i]! * Math.min(s.gpVisits * weight / w.reach[j]! * 1000, shortfall) / 1000 * (shortfall / w.target);
     }
   }
-  return { normal, stepFree, sites: m };
+  return out;
 }
 
-/** Residents per cell and group, with optional per-sub-district demand multipliers. */
-export function demand(data: TwinData, a: Assumptions, areaFactor?: Float64Array) {
-  const n = data.cells.length;
-  const everyone = new Float64Array(n), language = new Float64Array(n), stepFree = new Float64Array(n), extended = new Float64Array(n);
-  data.cells.forEach(([, , residents, areaIndex], i) => {
-    const area = data.areas[areaIndex]!, people = residents * (areaFactor?.[areaIndex] ?? 1);
-    everyone[i] = people; language[i] = people * area.foreign_language; stepFree[i] = people * area.aged_75; extended[i] = people * a.extendedNeed;
-  });
-  return { everyone, language, step_free: stepFree, extended } satisfies Record<GroupID, Float64Array>;
-}
-export type Demand = ReturnType<typeof demand>;
-
-/** Per-site supply state for one scenario. Capacity is in appointment-hours per week. */
-export type Supply = { capacity: Float64Array; interpreting: Float64Array };
-export function baselineSupply(data: TwinData, a: Assumptions, d: Disruptions, extraSites = 0): Supply {
-  const m = data.stations.length + extraSites;
-  const capacity = new Float64Array(m), interpreting = new Float64Array(m);
-  data.stations.forEach((station, j) => {
-    capacity[j] = d.closed.includes(station.id) ? 0 : a.clinicians * a.hoursPerClinician * (1 - a.absence);
-    interpreting[j] = d.remoteInterpretingDown ? 0 : a.remoteInterpreting;
-  });
-  return { capacity, interpreting };
-}
-
-export type Access = Record<GroupID, Float64Array> & { target: number; ratio: Float64Array };
-/**
- * E2SFCA. Capacity at each site is shared by every resident who can reach it (step 1); each group then
- * reaches only the part of it that suits them (interpreting, step-free entrance, opening hours) (step 2).
- */
-export function access(data: TwinData, sites: Site[], w: Weights, people: Demand, supply: Supply, a: Assumptions): Access {
-  const n = data.cells.length, m = w.sites;
-  const ratio = new Float64Array(m);
-  for (let j = 0; j < m; j++) {
-    if (!supply.capacity[j]) continue;
-    let reach = 0;
-    for (let i = 0; i < n; i++) reach += people.everyone[i]! * w.normal[i * m + j]!;
-    ratio[j] = reach ? supply.capacity[j]! / reach : 0;
+/** The expected week with the resource in place, and which squares it helps (for the map). */
+export function applyResource(p: Prepared, s: Settings, before: Week, r: Resource, c: number) {
+  const helped: { cell: number; amount: number }[] = [];
+  if (r === "gp") {
+    const next = week(p, s, { extraCapacity: { station: c, visits: s.gpVisits } });
+    let visits = 0, weighted = 0;
+    for (let i = 0; i < p.n; i++) {
+      const added = (next.access[i]! - before.access[i]!) * before.demand[i]! / 1000;
+      if (added > 0) { visits += added; weighted += added * before.access[i]!; }
+      const gain = Math.min(next.access[i]! - before.access[i]!, Math.max(0, before.target - before.access[i]!));
+      if (gain > 0.5) helped.push({ cell: i, amount: before.demand[i]! * gain / 1000 });
+    }
+    // Visits a year per 1,000 residents that the people seeing the new GP reach today.
+    return { week: { ...next, target: before.target }, helped, recipientsAccess: visits ? weighted / visits : 0 };
   }
-  const out = { everyone: new Float64Array(n), language: new Float64Array(n), step_free: new Float64Array(n), extended: new Float64Array(n) };
-  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
-    const r = ratio[j]!;
-    if (!r) continue;
-    const site = sites[j]!, wn = w.normal[i * m + j]!;
-    out.everyone[i]! += r * wn;
-    out.language[i]! += r * supply.interpreting[j]! * wn;
-    out.step_free[i]! += r * site.stepFreeFactor * w.stepFree[i * m + j]!;
-    out.extended[i]! += r * Math.min(1, site.extendedShare / a.extendedNeed) * wn;
+  if (r === "interpreter") {
+    for (let i = 0; i < p.n; i++) for (let r = 0; r < p.k; r++) {
+      const sh = before.share[i * p.k + r]!;
+      if (p.near[i * p.k + r] === c && sh && carMinutes(p.nearKm[i * p.k + r]!, p.density[i]! as Density, before.slow) <= 30 && p.language[i]! * sh >= 1)
+        helped.push({ cell: i, amount: p.language[i]! * sh });
+    }
+    return { week: before, helped, recipientsAccess: 0 };
   }
-  let capacity = 0, residents = 0;
-  for (const value of supply.capacity) capacity += value;
-  for (const value of people.everyone) residents += value;
-  return { ...out, target: residents ? capacity / residents : 0, ratio };
+  const carMin = Float32Array.from(before.carMin), noCarMin = Float32Array.from(before.noCarMin);
+  for (let q = p.stopStart[c]!; q < p.stopStart[c + 1]!; q++) {
+    const i = p.stopCell[q]!, d = p.stopKm[q]!, from = p.density[i]! as Density;
+    const benefit = clinicBenefit(p, before, s, i, d);
+    if (benefit > 0) helped.push({ cell: i, amount: benefit });
+    carMin[i] = Math.min(carMin[i]!, carMinutes(d, from, before.slow));
+    noCarMin[i] = Math.min(noCarMin[i]!, noCarMinutes(d, from, before.slow, before.busStrike));
+  }
+  return { week: { ...before, carMin, noCarMin }, helped, recipientsAccess: 0 };
 }
 
-/** Resident-equivalents below the city average, per group: Σ people × shortfall share. */
-export function shortfall(people: Demand, acc: Access, target = acc.target) {
-  const result = {} as Record<GroupID, number>;
-  for (const group of groups) {
-    let total = 0;
-    const p = people[group.id], v = acc[group.id];
-    for (let i = 0; i < p.length; i++) if (v[i]! < target) total += p[i]! * (target - v[i]!) / target;
-    result[group.id] = total;
-  }
-  return result;
-}
-export const total = (value: Record<GroupID, number>) => groups.reduce((sum, group) => sum + value[group.id], 0);
-
-/** Gain in access from one intervention, without recomputing the whole city. */
-export function candidateGain(people: Demand, acc: Access, sites: Site[], w: Weights, supply: Supply, a: Assumptions, resource: Resource, j: number, extra?: { ratio: number }) {
-  const m = w.sites, n = people.everyone.length, target = acc.target;
-  const site = sites[j]!;
-  let dEveryone = 0, dLanguage = 0, dStepFree = 0, dExtended = 0;
-  if (resource === "clinician" || resource === "vehicle") {
-    // Adding capacity S to site j raises its ratio by S / (residents who can reach it).
-    const added = resource === "clinician" ? a.hoursPerClinician * (1 - a.absence) : a.vehicleHours;
-    let reach = 0;
-    for (let i = 0; i < n; i++) reach += people.everyone[i]! * w.normal[i * m + j]!;
-    const r = extra?.ratio ?? (reach ? added / reach : 0);
-    dEveryone = r; dLanguage = r * supply.interpreting[j]!; dStepFree = r * site.stepFreeFactor; dExtended = r * Math.min(1, site.extendedShare / a.extendedNeed);
-  } else {
-    dLanguage = acc.ratio[j]! * (1 - supply.interpreting[j]!);
-  }
-  let gain = 0;
-  const below = (value: number, delta: number) => value < target ? Math.min(delta, target - value) / target : 0;
-  for (let i = 0; i < n; i++) {
-    const wn = w.normal[i * m + j]!;
-    if (!wn && !w.stepFree[i * m + j]) continue;
-    if (dEveryone) gain += people.everyone[i]! * below(acc.everyone[i]!, dEveryone * wn);
-    if (dLanguage) gain += people.language[i]! * below(acc.language[i]!, dLanguage * wn);
-    if (dStepFree) gain += people.step_free[i]! * below(acc.step_free[i]!, dStepFree * w.stepFree[i * m + j]!);
-    if (dExtended) gain += people.extended[i]! * below(acc.extended[i]!, dExtended * wn);
-  }
-  return gain;
-}
-
+// ---- Monte Carlo ------------------------------------------------------------------------------------
 /** Deterministic pseudo-random numbers, so a run can be repeated and tested. */
 export function rng(seed: number) {
-  let s = seed >>> 0;
-  return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  let state = seed >>> 0;
+  return () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
-function normal(random: () => number) { return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random()); }
+const gaussian = (random: () => number) => Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
+const weekKinds = [{ slow: 1, label: "An ordinary week" }, { slow: 1, label: "An ordinary week" }, { slow: 1.1, label: "A week of slow roads" }, { slow: 1.3, label: "A snowy week" }];
 
-export type Candidate = { resource: Resource; site: Site; gains: number[] };
-export type Suggestion = { resource: Resource; site: Site; meanGain: number; share: number; low: number; high: number; bestShare: number };
-export type RunResult = { draws: number; scenarios: number; baselineShortfall: number; byResource: Record<Resource, Suggestion[]> };
-export type RunOptions = { draws: number; seed: number; data?: TwinData; assumptions: Assumptions; disruptions: Disruptions;
-  onProgress?: (done: number, totalScenarios: number) => void; yieldEvery?: number };
-
-const slowdowns = [0.9, 1, 1.1, 1.25];
-const quantile = (sorted: number[], q: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))]!;
+export type Simulation = { resource: Resource; draws: number; scenarios: number; gains: Float32Array[]; mean: Float64Array; low: Float64Array; high: Float64Array };
+export type Progress = { draw: number; draws: number; scenarios: number; label: string; leader: number };
 
 /**
- * Monte Carlo over uncertain weeks. Each draw varies clinician absence, sub-district demand (±8%),
- * travel speed and the chance of one unplanned station closure, then scores every candidate under the
- * same draw (common random numbers). Scenarios = draws × (1 baseline + every candidate).
+ * Simulates `draws` uncertain weeks. Each week varies travel speed, demand per municipality (±8%), GP
+ * availability per station (±10%) and has a 15% chance that one station closes unexpectedly. Every
+ * candidate place is scored under the same week, so differences between places are fair.
  */
-export async function runScenarios(options: RunOptions): Promise<RunResult> {
-  const data = options.data ?? twinData, a = options.assumptions, d = options.disruptions;
-  const random = rng(options.seed);
-  const stations = data.stations.map(stationSite), libraries = data.libraries.map(librarySite);
-  const sites = [...stations, ...libraries];
-  const open = stations.map((site, j) => ({ site, j })).filter(({ site }) => !d.closed.includes(site.id));
-  const candidates: Candidate[] = [
-    ...open.map(({ site }) => ({ resource: "clinician" as const, site, gains: [] })),
-    ...open.map(({ site }) => ({ resource: "interpreter" as const, site, gains: [] })),
-    ...libraries.map(site => ({ resource: "vehicle" as const, site, gains: [] })),
-  ];
-  const scenarios = options.draws * (candidates.length + 1);
-  const weightCache = new Map<number, Weights>();
-  const weights = (slowdown: number) => {
-    let cached = weightCache.get(slowdown);
-    if (!cached) { cached = buildWeights(data, sites, !d.transitStrike, slowdown); weightCache.set(slowdown, cached); }
-    return cached;
-  };
-  const baselines: number[] = [];
-  for (let draw = 0; draw < options.draws; draw++) {
-    const slowdown = slowdowns[Math.floor(random() * slowdowns.length)]!;
-    const w = weights(slowdown);
-    const areaFactor = Float64Array.from(data.areas, () => Math.max(0.7, 1 + 0.08 * normal(random)));
-    const people = demand(data, a, areaFactor);
-    const supply = baselineSupply(data, a, d, libraries.length);
-    stations.forEach((site, j) => {
-      if (!supply.capacity[j]) return;
-      let present = 0;
-      for (let k = 0; k < a.clinicians; k++) if (random() >= a.absence) present++;
-      supply.capacity[j] = present * a.hoursPerClinician;
-    });
-    if (random() < 0.1) supply.capacity[Math.floor(random() * stations.length)] = 0; // unplanned closure this week
-    libraries.forEach((_, k) => { supply.interpreting[stations.length + k] = d.remoteInterpretingDown ? 0 : a.remoteInterpreting; });
-    const acc = access(data, sites, w, people, supply, a);
-    baselines.push(total(shortfall(people, acc)));
-    for (const candidate of candidates) {
-      const j = sites.indexOf(candidate.site);
-      if (candidate.resource !== "vehicle" && !supply.capacity[j]) { candidate.gains.push(0); continue; }
-      candidate.gains.push(candidateGain(people, acc, sites, w, supply, a, candidate.resource, j));
-    }
-    if (options.yieldEvery && (draw + 1) % options.yieldEvery === 0) {
-      options.onProgress?.((draw + 1) * (candidates.length + 1), scenarios);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
+export function* simulate(p: Prepared, s: Settings, r: Resource, draws: number, seed: number): Generator<Progress, Simulation> {
+  const random = rng(seed), count = candidates(p, r);
+  const all = Array.from({ length: count }, () => new Float32Array(draws));
+  const total = new Float64Array(count);
+  for (let draw = 0; draw < draws; draw++) {
+    const kind = weekKinds[Math.floor(random() * weekKinds.length)]!;
+    const muniDemand = Float64Array.from(p.data.municipalities, () => Math.max(0.7, 1 + 0.08 * gaussian(random)));
+    const capacityFactor = Float64Array.from({ length: p.m }, () => Math.max(0.6, 1 + 0.1 * gaussian(random)));
+    const closedIndex = random() < 0.15 ? Math.floor(random() * p.m) : -1;
+    const w = week(p, s, { slow: kind.slow, muniDemand, capacityFactor, extraClosed: closedIndex >= 0 ? p.data.stations[closedIndex]!.id : undefined });
+    const g = gains(p, w, s, r);
+    let leader = 0;
+    for (let c = 0; c < count; c++) { all[c]![draw] = g[c]!; total[c]! += g[c]!; if (total[c]! > total[leader]!) leader = c; }
+    yield { draw: draw + 1, draws, scenarios: (draw + 1) * count, leader,
+      label: closedIndex >= 0 ? `${kind.label}, ${stationName(p.data, closedIndex)} unexpectedly closed` : kind.label };
   }
-  options.onProgress?.(scenarios, scenarios);
-  const baselineShortfall = baselines.reduce((sum, value) => sum + value, 0) / baselines.length;
-  const byResource = { clinician: [], interpreter: [], vehicle: [] } as Record<Resource, Suggestion[]>;
-  for (const resource of resources.map(item => item.id)) {
-    const pool = candidates.filter(candidate => candidate.resource === resource);
-    const wins = new Map<Candidate, number>();
-    for (let draw = 0; draw < options.draws; draw++) {
-      let best: Candidate | undefined;
-      for (const candidate of pool) if (!best || candidate.gains[draw]! > best.gains[draw]!) best = candidate;
-      if (best) wins.set(best, (wins.get(best) ?? 0) + 1);
-    }
-    byResource[resource] = pool.map(candidate => {
-      const sorted = [...candidate.gains].sort((x, y) => x - y);
-      const meanGain = candidate.gains.reduce((sum, value) => sum + value, 0) / candidate.gains.length;
-      return { resource, site: candidate.site, meanGain, share: baselineShortfall ? meanGain / baselineShortfall : 0,
-        low: quantile(sorted, 0.05), high: quantile(sorted, 0.95), bestShare: (wins.get(candidate) ?? 0) / options.draws };
-    }).sort((x, y) => y.meanGain - x.meanGain);
-  }
-  return { draws: options.draws, scenarios, baselineShortfall, byResource };
+  const mean = new Float64Array(count), low = new Float64Array(count), high = new Float64Array(count);
+  all.forEach((values, c) => {
+    const sorted = Float32Array.from(values).sort();
+    mean[c] = total[c]! / draws; low[c] = sorted[Math.floor(0.05 * (draws - 1))]!; high[c] = sorted[Math.ceil(0.95 * (draws - 1))]!;
+  });
+  return { resource: r, draws, scenarios: draws * count, gains: all, mean, low, high };
+}
+export function runSimulation(p: Prepared, s: Settings, r: Resource, draws: number, seed: number) {
+  const steps = simulate(p, s, r, draws, seed);
+  for (;;) { const step = steps.next(); if (step.done) return step.value; }
 }
 
-/**
- * The expected week, without random variation: used to draw the map before and after a change.
- * Both are scored against the city average before the change, so added capacity counts as a gain.
- */
-export function expectedWeek(a: Assumptions, d: Disruptions, change?: { resource: Resource; site: Site }, data: TwinData = twinData) {
-  const stations = data.stations.map(stationSite), libraries = data.libraries.map(librarySite);
-  const sites = [...stations, ...libraries];
-  const w = buildWeights(data, sites, !d.transitStrike);
-  const people = demand(data, a);
-  const supply = baselineSupply(data, a, d, libraries.length);
-  libraries.forEach((_, k) => { supply.interpreting[stations.length + k] = d.remoteInterpretingDown ? 0 : a.remoteInterpreting; });
-  const before = access(data, sites, w, people, supply, a);
-  let after: Access | undefined;
-  if (change) {
-    const j = sites.findIndex(site => site.kind === change.site.kind && site.id === change.site.id);
-    const changed = { capacity: Float64Array.from(supply.capacity), interpreting: Float64Array.from(supply.interpreting) };
-    if (change.resource === "clinician") changed.capacity[j]! += a.hoursPerClinician * (1 - a.absence);
-    if (change.resource === "vehicle") changed.capacity[j] = a.vehicleHours;
-    if (change.resource === "interpreter") changed.interpreting[j] = 1;
-    after = access(data, sites, w, people, changed, a);
+export type Ranked = { index: number; name: string; mean: number; low: number; high: number; bestShare: number; county: number; muni: number; lon: number; lat: number };
+/** Candidates ranked by mean gain, optionally within one county; `bestShare` is the share of simulated weeks it ranked in the top 3. */
+export function rank(p: Prepared, sim: Simulation, county?: number): Ranked[] {
+  const pool: number[] = [];
+  for (let c = 0; c < sim.mean.length; c++) if (county === undefined || p.data.municipalities[candidatePlace(p, sim.resource, c).muni]!.county === county) pool.push(c);
+  const wins = new Map<number, number>();
+  for (let draw = 0; draw < sim.draws; draw++) {
+    const top: number[] = [];
+    for (const c of pool) {
+      top.push(c); top.sort((a, b) => sim.gains[b]![draw]! - sim.gains[a]![draw]!);
+      if (top.length > 3) top.pop();
+    }
+    for (const c of top) wins.set(c, (wins.get(c) ?? 0) + 1);
   }
-  const target = before.target;
-  return { sites, people, before, after, target, shortfallBefore: shortfall(people, before, target), shortfallAfter: after ? shortfall(people, after, target) : undefined };
+  return pool.map(c => {
+    const place = candidatePlace(p, sim.resource, c);
+    return { index: c, name: place.name, mean: sim.mean[c]!, low: sim.low[c]!, high: sim.high[c]!, bestShare: (wins.get(c) ?? 0) / sim.draws,
+      county: p.data.municipalities[place.muni]!.county, muni: place.muni, lon: place.lon, lat: place.lat };
+  }).sort((a, b) => b.mean - a.mean);
 }
 
-/** Each group's resident-weighted average access, as a share of the city average for everyone. */
-export function averageAccess(people: Demand, acc: Access, target: number) {
-  const result = {} as Record<GroupID, number>;
-  for (const group of groups) {
-    let weighted = 0, count = 0;
-    const p = people[group.id], v = acc[group.id];
-    for (let i = 0; i < p.length; i++) { weighted += p[i]! * v[i]!; count += p[i]!; }
-    result[group.id] = count && target ? weighted / count / target : 0;
+// ---- What a closure does ----------------------------------------------------------------------------------
+export function closureImpact(p: Prepared, before: Week, afterWeek: Week, station: number) {
+  const K = p.k;
+  let moved = 0, nowFar = 0, extraMinutes = 0;
+  const destinations = new Map<number, number>();
+  for (let i = 0; i < p.n; i++) {
+    let used = 0;
+    for (let r = 0; r < K; r++) if (p.near[i * K + r] === station) used = before.share[i * K + r]!;
+    if (!used) continue;
+    const people = p.pop[i]! * used;
+    moved += people; extraMinutes += people * Math.max(0, Math.min(120, afterWeek.carMin[i]! - before.carMin[i]!));
+    if (before.carMin[i]! <= 30 && afterWeek.carMin[i]! > 30) nowFar += people;
+    for (let r = 0; r < K; r++) { const sh = afterWeek.share[i * K + r]!; if (sh) { const j = p.near[i * K + r]!; destinations.set(j, (destinations.get(j) ?? 0) + people * sh); } }
   }
-  return result;
+  destinations.delete(station);
+  const to = [...destinations.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([j, people]) => ({ station: j, people }));
+  return { moved, nowFar, averageExtraMinutes: moved ? extraMinutes / moved : 0, to, lostVisits: before.capacity[station]! };
 }
