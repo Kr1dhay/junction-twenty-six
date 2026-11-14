@@ -2,7 +2,7 @@ import SwiftUI
 import EdgeCareCore
 
 @MainActor final class ConversationController: ObservableObject {
-    enum Phase: Equatable { case ready, connecting, listening, processing, speaking, paused, complete }
+    enum Phase: Equatable { case ready, connecting, listening, processing, speaking, settling, paused, complete }
     @Published private(set) var phase: Phase = .ready
     @Published private(set) var noticeKey: String?
     @Published private(set) var textOnly = false
@@ -16,7 +16,7 @@ import EdgeCareCore
     private weak var model: IntakeViewModel?
     private weak var app: AppSession?
 
-    var active: Bool { phase == .connecting || phase == .processing || phase == .speaking || phase == .listening }
+    var active: Bool { phase == .connecting || phase == .processing || phase == .speaking || phase == .settling || phase == .listening }
     var statusKey: String {
         switch phase {
         case .ready: "conversationReady"
@@ -24,6 +24,7 @@ import EdgeCareCore
         case .listening: "conversationListening"
         case .processing: "conversationProcessing"
         case .speaking: "conversationSpeaking"
+        case .settling: "voiceSettlingTitle"
         case .paused: "conversationPaused"
         case .complete: "conversationComplete"
         }
@@ -31,7 +32,6 @@ import EdgeCareCore
 
     init() {
         audio.onFailure = { [weak self] in self?.pause(notice: "voiceUnavailable") }
-        live.onEchoCancellationUnavailable = { [weak self] in self?.noticeKey = "headphonesRecommended" }
         live.onInterruption = { [weak self] in self?.model?.voiceIntakeComplete = false }
         audio.onPlaybackFinished = { [weak self] in self?.playbackFinished() }
         live.onPhase = { [weak self] phase in

@@ -41,7 +41,8 @@ import XCTest
 
     func testFullScreenVoiceStatesWithoutCapturingAudio() {
         for (phase, title) in [("connecting", "Connecting to Edi…"), ("listening", "Speak now"),
-                               ("processing", "One moment…"), ("speaking", "Edi is speaking")] {
+                               ("processing", "One moment…"), ("speaking", "Edi is speaking"),
+                               ("settling", "Getting ready to listen…")] {
             let app = launch(voicePhase: phase)
             app.buttons["Create a new referral"].tap()
             app.segmentedControls.buttons["Voice conversation"].tap()
@@ -52,6 +53,12 @@ import XCTest
             XCTAssertFalse(app.segmentedControls.buttons["Voice conversation"].isHittable)
             if phase == "listening" || phase == "speaking" {
                 XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.height, 200)
+            }
+            if phase == "speaking" {
+                XCTAssertTrue(app.staticTexts["Tap the microphone to interrupt. Your microphone is paused while Edi speaks and resumes automatically afterward."].exists)
+            }
+            if phase == "settling" {
+                XCTAssertFalse(app.buttons["voiceMicrophone"].exists)
             }
             app.buttons["voiceBack"].tap()
             XCTAssertTrue(app.buttons["Start conversation"].waitForExistence(timeout: 5))

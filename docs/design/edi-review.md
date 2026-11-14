@@ -1,5 +1,20 @@
 # EDI + Gemini visual review
 
+**Current voice interaction:** speaker-safe, tap-only interruption supersedes the
+spoken barge-in described in the historical review entries below. Microphone
+transmission pauses while Edi speaks and for a 500 ms echo tail; “Speak now”
+appears automatically afterward. The prominent speaking hint says “Tap the
+microphone to interrupt.” No claim of hands-free Mac-speaker echo cancellation.
+
+Speaker-safe regressions pass 55 focused tests. They verify that loud captured
+audio during playback and its tail is not sent, late callbacks and pre-roll do
+not leak old echo, a mic tap stops playback, local/remote interruption can rearm,
+stopping during the tail cannot reopen input, and multiple follow-up questions
+still use one continuous capture engine. The room-noise estimate is retained.
+The five-state screenshot test passes, including the new tail-hold state and an
+assertion for the tap-only speaking hint. The speaking/settling captures were
+reviewed locally. A real Mac-speaker retest is still required after installation.
+
 ## Repeatable feedback loop
 
 1. Build the merged branch and capture the installed UI before editing.

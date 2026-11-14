@@ -36,12 +36,19 @@ final class ConversationCopyTests: XCTestCase {
         for key in ["conversationProcessing", "interruptReply", "conversationRepeatedInterruptions", "useTextInstead", "notYetProvided",
                     "voiceReadyTitle", "voiceConnectingTitle", "voiceListeningTitle", "voiceProcessingTitle", "voiceSpeakingTitle",
                     "voiceReadyHint", "voiceConnectingHint", "voiceProcessingHint", "voiceSpeakingHint", "latestDialogue",
-                    "readingAloud", "stopReading", "preparingReadAloud", "aboutVoice"] {
+                    "readingAloud", "stopReading", "preparingReadAloud", "aboutVoice", "voiceSettlingTitle", "voiceSettlingHint"] {
             XCTAssertEqual(Copy.strings[key]?.count, Copy.languages.count, key)
             for language in Copy.languages {
                 XCTAssertFalse(Copy.text(key, language).isEmpty)
                 XCTAssertNotEqual(Copy.text(key, language), key)
             }
         }
+    }
+
+    func testSpeakingHintRequiresTapInsteadOfPromisingSpokenInterruption() {
+        let hint = Copy.text("voiceSpeakingHint", "en")
+        XCTAssertTrue(hint.contains("Tap the microphone to interrupt"))
+        XCTAssertTrue(hint.contains("paused while Edi speaks"))
+        XCTAssertFalse(hint.contains("interrupt by speaking"))
     }
 }

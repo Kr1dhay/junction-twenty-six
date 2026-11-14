@@ -2,7 +2,7 @@ import Foundation
 import EdgeCareCore
 
 @MainActor protocol GeminiLiveAudioIO: AnyObject {
-    var onInput: ((Data, Float) -> Void)? { get set }
+    var onInput: ((Data, Float, TimeInterval) -> Void)? { get set }
     var onDrain: (() -> Void)? { get set }
     var onAudibleDrain: (() -> Void)? { get set }
     var onFailure: (() -> Void)? { get set }
@@ -33,7 +33,7 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
     var onInterruption: (() -> Void)?
     private var microphone = GeminiLiveMicrophoneInput()
     private var interruptionGate = LiveInterruptionGate()
-    private var interruptionLimiter = LiveInterruptionLimiter()
+    private var speakerInput = LiveSpeakerInputGate()
     private var progress = LiveInputProgress()
     var onLiveText: ((String, String) -> Void)?
     var onPhase: ((ConversationController.Phase) -> Void)?
@@ -45,6 +45,7 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
     var onLimit: (() -> Void)?
     private let audio: any GeminiLiveAudioIO
     private let makeConnection: @MainActor () -> any GeminiLiveConnectionIO
+    private let now: @MainActor () -> TimeInterval
     private var connection: (any GeminiLiveConnectionIO)?
     private var sender: Task<Void, Never>?
     private var watchdog: Task<Void, Never>?
@@ -71,28 +72,29 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
     private var audibleOutputUntil: Date?
 
     init(audio: any GeminiLiveAudioIO = GeminiLiveAudio(),
-         makeConnection: @escaping @MainActor () -> any GeminiLiveConnectionIO = { GeminiLiveConnection() }) {
+         makeConnection: @escaping @MainActor () -> any GeminiLiveConnectionIO = { GeminiLiveConnection() },
+         now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.audio = audio
         self.makeConnection = makeConnection
-        audio.onInput = { [weak self] data, power in
+        self.now = now
+        audio.onInput = { [weak self] data, power, capturedAt in
             guard let self, !self.finished else { return }
-            // Capture stays live during output, including the closing acknowledgement.
-            // Voice Processing I/O handles echo; never blanket-mute the patient's mic.
-            let playing = self.audio.isAudible
-            guard let frame = self.microphone.process(data, power: power, duringPlayback: playing) else { return }
+            if self.speakerInput.rearm(at: self.now()) {
+                self.microphone.suspendForPlayback().forEach { self.sendInput($0) }
+                self.onPhase?(.listening)
+                NSLog("EdgeCare voice: speaker echo guard ended; microphone ready")
+            }
+            guard self.speakerInput.allowsInput(capturedAt: capturedAt, duration: Double(data.count) / 32000),
+                  let frame = self.microphone.process(data, power: power) else { return }
             if frame.activity.speechStarted {
                 self.progress.heardInput()
                 self.inputReceived = true
             }
             if frame.activity.speechStarted,
-               playing || self.terminal || self.profileReceived,
+               self.terminal || self.profileReceived,
                self.interruptionGate.interrupt(awaitingServer: !self.turnFinished) {
-                if playing && self.interruptionLimiter.shouldPause(interruptionAt: ProcessInfo.processInfo.systemUptime) {
-                    self.fail("conversationRepeatedInterruptions")
-                    return
-                }
                 self.interruptReply()
-                NSLog("EdgeCare voice: local barge-in; playback stopped")
+                NSLog("EdgeCare voice: next answer superseded completed speech")
             }
             if frame.activity.speechDetected {
                 self.lastSpeech = Date(); self.inputReceived = true; self.onActivity?()
@@ -120,7 +122,7 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
         let current = generation
         finished = false; terminal = false; complete = false; ready = false; speaking = false
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
-        interruptionLimiter = LiveInterruptionLimiter()
+        speakerInput = LiveSpeakerInputGate()
         progress = LiveInputProgress()
         if text != nil { progress.heardInput() }
         turns = 0; ids = []; cancelledCalls = []
@@ -261,8 +263,15 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
                         progress.beganResponse()
                         guard inline.mimeType.hasPrefix("audio/pcm"), inline.mimeType.contains("rate=24000"),
                               let data = Data(base64Encoded: inline.data), replyPCM.count + data.count <= 2 * 1024 * 1024 else { throw CoreError.invalidResponse }
+                        let audible = (PCM16Audio.power(data) ?? -90) > -50
+                        if audible, capturing {
+                            // Close input before scheduling any audible output.
+                            // Echo must never enter onset detection or pre-roll.
+                            speakerInput.beganPlayback()
+                            for message in microphone.suspendForPlayback() { sendInput(message) }
+                        }
                         try audio.enqueue(data); replyPCM.append(data)
-                        if (PCM16Audio.power(data) ?? -90) > -50 {
+                        if audible {
                             audibleOutputUntil = Date().addingTimeInterval(Double(audio.queuedFrames) / 24000)
                             speaking = true; onPhase?(.speaking); onActivity?()
                         }
@@ -297,17 +306,22 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
     }
 
     private func interruptReply() {
+        let heldSpeakerInput = speakerInput.isHoldingInput
         audio.interruptPlayback()
+        if heldSpeakerInput {
+            speakerInput.endedPlayback(at: now())
+            for message in microphone.suspendForPlayback() { sendInput(message) }
+        }
         flushHistory(); replyPCM = Data()
         profileReceived = false; turnFinished = false; speaking = false
         terminal = false; complete = false; inputReceived = true; endStarted = nil
         audibleOutputUntil = nil; lastSpeech = Date(); lastResponse = Date()
         progress.interrupted()
-        onInterruption?(); onPhase?(.listening)
+        onInterruption?(); onPhase?(speakerInput.isHoldingInput ? .settling : .listening)
     }
 
-    /// Explicit fallback for speaker routes where crowd/echo defeats acoustic
-    /// onset detection. Capture and the Gemini connection remain alive.
+    /// The only way to interrupt audible speech. Spoken input is withheld until
+    /// playback and its echo tail end; the capture engine itself stays running.
     func interrupt() -> Bool {
         guard !finished, capturing else { return false }
         if interruptionGate.interrupt(awaitingServer: !turnFinished) {
@@ -331,22 +345,26 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
             let consumedInput = progress.endedResponse()
             if consumedInput { inputReceived = false }
             audibleOutputUntil = Date()
-            if consumedInput { lastSpeech = Date(); onPhase?(.listening) }
-            NSLog("EdgeCare voice: reply complete; microphone ready for next answer")
+            if consumedInput {
+                lastSpeech = Date()
+                onPhase?(speakerInput.isHoldingInput ? .settling : .listening)
+            }
+            NSLog("EdgeCare voice: response complete; capture remains active with speaker echo guard")
         }
     }
     private func readyForReply() {
         guard !finished else { return }
         speaking = false
         audibleOutputUntil = Date()
+        speakerInput.endedPlayback(at: now())
         if turnFinished {
             audio.interruptPlayback()
             drained()
             return
         }
         guard capturing, !terminal else { return }
-        if !progress.hasNewerInput { onPhase?(.listening) }
-        NSLog("EdgeCare voice: audible reply ended; capture remains active")
+        if !progress.hasNewerInput { onPhase?(speakerInput.isHoldingInput ? .settling : .listening) }
+        NSLog("EdgeCare voice: audible reply ended; waiting for speaker echo tail")
     }
     private func flushHistory() {
         if !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { onHistory?(VoiceConversationTurn(role: "user", text: userText)) }
@@ -371,7 +389,7 @@ extension GeminiLiveConnection: GeminiLiveConnectionIO {}
         audio.stop(); connection?.close(); connection = nil
         userText = ""; replyText = ""; replyPCM = Data(); ids = []; cancelledCalls = []
         microphone = GeminiLiveMicrophoneInput(); interruptionGate = LiveInterruptionGate()
-        interruptionLimiter = LiveInterruptionLimiter()
+        speakerInput = LiveSpeakerInputGate()
         progress = LiveInputProgress()
         onLiveText?("", "")
     }

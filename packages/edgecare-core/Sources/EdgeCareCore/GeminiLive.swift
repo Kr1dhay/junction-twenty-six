@@ -100,6 +100,15 @@ public struct GeminiLiveMicrophoneInput: Sendable {
     private var transmitting = false
     public init() {}
 
+    /// Close an in-flight utterance once, then discard onset/pre-roll across
+    /// speaker playback. Preserve the ambient noise estimate for the next answer.
+    public mutating func suspendForPlayback() -> [GeminiLiveInput] {
+        let end: [GeminiLiveInput] = transmitting ? [.endUtterance] : []
+        transmitting = false
+        microphone.resetSpeech()
+        return end
+    }
+
     public mutating func process(_ data: Data, power: Float, duringPlayback: Bool = false) -> Frame? {
         guard let frame = microphone.process(data, power: power, duringPlayback: duringPlayback) else { return nil }
         if frame.activity.speechStarted { transmitting = true }

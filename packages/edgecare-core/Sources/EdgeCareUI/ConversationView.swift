@@ -93,6 +93,7 @@ struct ConversationView: View {
         case "listening": .listening
         case "processing": .processing
         case "speaking": .speaking
+        case "settling": .settling
         default: nil
         }
         #else
@@ -225,7 +226,7 @@ struct ConversationStage: View {
     let onPause: () -> Void
     let onContinue: () -> Void
     private func t(_ key: String) -> String { Copy.text(key, language) }
-    private var busy: Bool { phase == .connecting || phase == .processing }
+    private var busy: Bool { phase == .connecting || phase == .processing || phase == .settling }
     private var dialogue: [VoiceConversationTurn] {
         var turns = Array(history.suffix(2))
         if !userText.isEmpty { turns.append(.init(role: "user", text: userText)) }
@@ -253,7 +254,7 @@ struct ConversationStage: View {
                             .accessibilityIdentifier("voiceStageTitle")
                         if busy {
                             ZStack {
-                                VoiceMicrophone(symbol: phase == .connecting ? "wifi" : "ellipsis", size: 192, active: false)
+                                VoiceMicrophone(symbol: phase == .connecting ? "wifi" : phase == .settling ? "mic.slash.fill" : "ellipsis", size: 192, active: false)
                                 ProgressView().controlSize(.large).offset(y: 62)
                             }.accessibilityElement(children: .ignore).accessibilityLabel(t(phase.screenTitleKey))
                         } else {
@@ -264,7 +265,8 @@ struct ConversationStage: View {
                                 .accessibilityIdentifier("voiceMicrophone")
                                 .accessibilityLabel(t(phase.microphoneActionKey))
                         }
-                        Text(t(phase.screenHintKey)).font(.title3).foregroundStyle(.secondary)
+                        Text(t(phase.screenHintKey)).font(phase == .speaking ? .title3.bold() : .title3)
+                            .foregroundStyle(phase == .speaking ? EdgeCareStyle.accent : .secondary)
                             .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                         if let noticeKey {
                             Label(t(noticeKey), systemImage: "exclamationmark.bubble")
@@ -320,6 +322,7 @@ extension ConversationController.Phase {
         case .listening: "voiceListeningTitle"
         case .processing: "voiceProcessingTitle"
         case .speaking: "voiceSpeakingTitle"
+        case .settling: "voiceSettlingTitle"
         case .paused: "conversationPaused"
         case .complete: "conversationComplete"
         }
@@ -330,13 +333,14 @@ extension ConversationController.Phase {
         case .listening: "conversationListening"
         case .processing: "voiceProcessingHint"
         case .speaking: "voiceSpeakingHint"
+        case .settling: "voiceSettlingHint"
         default: "voiceReadyHint"
         }
     }
     var microphoneActionKey: String {
         switch self {
         case .speaking: "interruptReply"
-        case .listening, .processing, .connecting: "pauseConversation"
+        case .listening, .processing, .connecting, .settling: "pauseConversation"
         default: "startConversation"
         }
     }

@@ -34,7 +34,7 @@ private final class LivePCMConverter: @unchecked Sendable {
 
 /// Duplex PCM capture/playback. No recording files or per-turn MP3 generation.
 @MainActor final class GeminiLiveAudio {
-    var onInput: ((Data, Float) -> Void)?
+    var onInput: ((Data, Float, TimeInterval) -> Void)?
     var onDrain: (() -> Void)?
     var onAudibleDrain: (() -> Void)?
     var onFailure: (() -> Void)?
@@ -126,7 +126,7 @@ private final class LivePCMConverter: @unchecked Sendable {
         let input = engine.inputNode, format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw CoreError.notConfigured }
         let converter = try LivePCMConverter(input: format), current = generation, capture = inputGeneration
-        let deliver: @Sendable (Data, Float) -> Void = { [weak self] data, power in
+        let deliver: @Sendable (Data, Float, TimeInterval) -> Void = { [weak self] data, power, capturedAt in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == current, self.inputGeneration == capture, self.capturing else { return }
                 self.lastInput = .now
@@ -135,11 +135,12 @@ private final class LivePCMConverter: @unchecked Sendable {
                     NSLog("EdgeCare voice: microphone buffers=%d peak_db=%.1f", self.inputBuffers, self.inputPeak)
                     self.inputBuffers = 0; self.inputPeak = -100; self.lastInputLog = .now
                 }
-                self.onInput?(data, power)
+                self.onInput?(data, power, capturedAt)
             }
         }
         input.installRealtimeTap(bufferSize: 1600, format: format) { buffer in
-            if let (data, power) = converter.convert(buffer) { deliver(data, power) }
+            let capturedAt = ProcessInfo.processInfo.systemUptime
+            if let (data, power) = converter.convert(buffer) { deliver(data, power, capturedAt) }
         }
         capturing = true
         wantsEngineRunning = true

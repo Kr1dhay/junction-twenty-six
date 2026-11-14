@@ -22,6 +22,10 @@ public struct AdaptiveSpeechActivity: Sendable {
 
     public init() {}
 
+    public mutating func resetSpeech() {
+        onset = 0; quiet = 0; active = false
+    }
+
     public mutating func sample(power: Float, duration: TimeInterval, duringPlayback: Bool = false) -> Sample {
         guard power.isFinite, duration.isFinite, duration > 0, duration <= 0.5 else {
             return Sample(speechStarted: false, speechDetected: false, speechEnded: false, passAudio: false)
@@ -80,6 +84,10 @@ public struct AdaptiveSpeechInput: Sendable {
     private var detector = AdaptiveSpeechActivity()
     private var preRoll = Data()
     public init() {}
+    public mutating func resetSpeech() {
+        detector.resetSpeech()
+        preRoll = Data()
+    }
     public mutating func process(_ data: Data, power: Float, duringPlayback: Bool = false) -> Frame? {
         guard !data.isEmpty, data.count.isMultiple(of: 2), data.count <= 8000, power.isFinite else { return nil }
         let activity = detector.sample(power: power, duration: Double(data.count) / 32000, duringPlayback: duringPlayback)
