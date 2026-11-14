@@ -72,6 +72,12 @@ import EdgeCareCore
                    now.timeIntervalSince(audible) > 2.5, self.audio.queuedFrames < 24000 {
                     self.flushHistory(); self.saveReplay(); self.finish(); return
                 }
+                if !self.terminal, let audible = self.audibleOutputUntil,
+                   now.timeIntervalSince(audible) > 12, now.timeIntervalSince(self.lastSpeech) > 12 {
+                    self.fail("conversationSilence"); return
+                }
+                if self.ready, self.inputReceived, self.audibleOutputUntil == nil,
+                   now.timeIntervalSince(self.lastSpeech) > 30 { self.fail("voiceUnavailable"); return }
                 if now.timeIntervalSince(started) >= Double(credentials.maxSessionSeconds) { self.fail("conversationLimit"); return }
                 if !self.ready && now.timeIntervalSince(started) > 15 { self.fail("voiceUnavailable"); return }
                 if let end = self.endStarted, now.timeIntervalSince(end) > 20 { self.fail("voiceUnavailable"); return }
@@ -149,8 +155,8 @@ import EdgeCareCore
                         try audio.enqueue(data); replyPCM.append(data)
                         if (PCM16Audio.power(data) ?? -90) > -50 {
                             audibleOutputUntil = Date().addingTimeInterval(Double(audio.queuedFrames) / 24000)
+                            speaking = true; onPhase?(.speaking); onActivity?()
                         }
-                        speaking = true; onPhase?(.speaking); onActivity?()
                     }
                     if content.turnComplete == true && content.interrupted != true {
                         guard !inputReceived || profileReceived else { throw CoreError.invalidResponse }
