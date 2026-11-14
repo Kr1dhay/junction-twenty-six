@@ -52,13 +52,13 @@ public struct OnDeviceTriageEngine: TriageEngine {
     public init() {}
     public func guidance(for text: String, language: String) async throws -> TriageGuidance {
         let text = text.lowercased()
-        let emergency = text.contains("[urgent_now=yes]") || ["severe chest pain", "chest pain", "cannot breathe", "can't breathe", "difficulty breathing", "heavy bleeding", "unconscious", "rintakipu", "hengitysvaike", "runsas verenvuoto", "xanuun laabta", "neefsan kari", "نزيف شديد", "ألم في الصدر", "صعوبة في التنفس", "боль в груди", "трудно дышать", "сильное кровотечение", "छाती दुख", "सास फेर्न गाह्रो", "धेरै रगत", "बेहोस"].contains { text.contains($0) }
-        let skin = ["mole", "skin", "lesion", "luomi", "iho", "bar maqaarka", "maqaarka", "شامة", "جلد", "родин", "кож", "कोठी", "छाला"].contains { text.contains($0) }
+        let emergency = text.contains("[urgent_now=yes]") || ["severe chest pain", "chest pain", "cannot breathe", "can't breathe", "difficulty breathing", "heavy bleeding", "unconscious", "rintakipu", "hengitysvaike", "runsas verenvuoto", "xanuun laabta", "neefsan kari", "نزيف شديد", "ألم في الصدر", "صعوبة في التنفس", "боль в груди", "трудно дышать", "сильное кровотечение", "біль у грудях", "біль в грудях", "важко дихати", "не можу дихати", "сильна кровотеча", "втрата свідомості", "непритомн", "छाती दुख", "सास फेर्न गाह्रो", "धेरै रगत", "बेहोस"].contains { text.contains($0) }
+        let skin = ["mole", "skin", "lesion", "luomi", "iho", "bar maqaarka", "maqaarka", "شامة", "جلد", "родин", "кож", "родим", "шкір", "कोठी", "छाला"].contains { text.contains($0) }
         let bleeding = ["bleed", "blood", "veri", "verenvuoto", "dhiig", "نزيف", "دم", "кров", "रगत", "रक्तस्राव"].contains { text.contains($0) }
-        let lump = ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "опухол", "уплотнен", "गाँठो", "सुन्निए"].contains { text.contains($0) }
-        let cough = ["cough", "yskä", "qufac", "سعال", "кашель", "खोकी"].contains { text.contains($0) }
+        let lump = ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "опухол", "уплотнен", "пухлин", "ущільнен", "припухлість", "गाँठो", "सुन्निए"].contains { text.contains($0) }
+        let cough = ["cough", "yskä", "qufac", "سعال", "кашель", "кашл", "खोकी"].contains { text.contains($0) }
         let persistent = text.contains("[persistent_or_changing=yes]")
-        let letter = ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "письм", "скрининг", "चिठी", "स्क्रिनिङ", "जाँच"].contains { text.contains($0) }
+        let letter = ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "письм", "скрининг", "лист", "скринінг", "चिठी", "स्क्रिनिङ", "जाँच"].contains { text.contains($0) }
         let lang = SupportedLanguage.resolve(language)
         var symptoms: [String] = []
         if emergency { symptoms.append("emergency_symptom_reported") }
