@@ -4,7 +4,6 @@ for (const width of [1600, 390]) {
   test(`equity cards show evidence, scenario transitions and AI states at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/");
-    await page.getByRole("button", { name: "Enter clinician demo" }).click();
     await expect(page.getByRole("heading", { name: "Anonymous referrals", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "What should we do?" })).toHaveCount(0);
     await page.getByRole("link", { name: "Equity actions", exact: true }).click();
@@ -46,8 +45,15 @@ for (const width of [1600, 390]) {
   });
 }
 
-test("equity page requires a clinician session", async ({ page }) => {
+test("equity page opens through automatic demo entry", async ({ page }) => {
   await page.goto("/equity-actions");
-  await expect(page.getByRole("button", { name: "Enter clinician demo" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "What should we do?" })).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+});
+
+test("failed demo entry does not expose the equity page", async ({ page }) => {
+  await page.route("**/demo/session", route => route.fulfill({ status: 503, json: { error: "Unavailable" } }));
+  await page.goto("/equity-actions");
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to open" })).toBeVisible();
   await expect(page.getByRole("region", { name: "What should we do?" })).toHaveCount(0);
 });

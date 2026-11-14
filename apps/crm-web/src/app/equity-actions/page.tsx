@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { ReferralDashboard } from "../../components/referral-dashboard";
-import { DemoLogin } from "../../components/demo-login";
+import { DemoEntry } from "../../components/demo-entry";
 import { validSession } from "../../server/auth";
 
 export const dynamic = "force-dynamic";
@@ -8,5 +8,5 @@ export default async function EquityActionsPage() {
   const cookieStore = await cookies();
   return validSession(cookieStore.get("edgecare_demo_session")?.value)
     ? <ReferralDashboard view="equity" />
-    : <DemoLogin requiresToken={Boolean(process.env.EDGECARE_CLINICIAN_TOKEN)} />;
+    : <DemoEntry />;
 }

@@ -2,7 +2,8 @@
 
 Open the authenticated CRM and select **Equity actions** in the sidebar.
 This opens the dedicated `/equity-actions` page; action cards are not embedded
-in the referrals view. Direct navigation requires the same clinician session.
+in the referrals view. Direct navigation uses the same automatic demo-session entry
+as the referrals page; it is not verified clinician authentication.
 On phones, a compact page-navigation row replaces the desktop sidebar links.
 The equity page does not poll referral records.
 
