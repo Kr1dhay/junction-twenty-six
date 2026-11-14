@@ -63,9 +63,18 @@ private final class LivePCMConverter: @unchecked Sendable {
         try session.setCategory(capture ? .playAndRecord : .playback, mode: capture ? .voiceChat : .spokenAudio,
                                 options: capture ? [.defaultToSpeaker] : [])
         try session.setActive(true)
-        let engine = AVAudioEngine(), player = AVAudioPlayerNode()
+        var engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        if capture {
+            do { try engine.inputNode.setVoiceProcessingEnabled(true) }
+            catch {
+                // Some simulator/input routes have no Voice Processing I/O unit.
+                // The calibrated input still mutes playback echo; use a fresh engine
+                // rather than making microphone capture depend on this optional unit.
+                engine = AVAudioEngine()
+            }
+        }
         self.engine = engine; self.player = player
-        if capture { try engine.inputNode.setVoiceProcessingEnabled(true) }
         engine.attach(player)
         let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
         engine.connect(player, to: engine.mainMixerNode, format: output)

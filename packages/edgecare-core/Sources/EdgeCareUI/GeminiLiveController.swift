@@ -2,6 +2,8 @@ import Foundation
 import EdgeCareCore
 
 @MainActor final class GeminiLiveController {
+    var onCalibrated: ((Bool) -> Void)?
+    private var microphone = CalibratedMicrophoneInput()
     var onPhase: ((ConversationController.Phase) -> Void)?
     var onProfile: ((GeminiLiveProfileUpdate) -> Void)?
     var onHistory: ((VoiceConversationTurn) -> Void)?
@@ -37,10 +39,16 @@ import EdgeCareCore
     init() {
         audio.onInput = { [weak self] data, power in
             guard let self, !self.finished, !self.terminal else { return }
-            if power > -42 {
+            let echoTail = self.audibleOutputUntil.map { Date() < $0.addingTimeInterval(0.35) } ?? false
+            guard let frame = self.microphone.process(data, power: power, suppress: echoTail) else { return }
+            if frame.calibrationCompleted {
+                self.lastSpeech = Date(); self.onCalibrated?(self.microphone.calibration.isNoisy)
+                self.onPhase?(.listening)
+            }
+            if frame.speechDetected {
                 self.lastSpeech = Date(); self.inputReceived = true; self.onActivity?()
             }
-            if let result = self.input?.yield(data), case .dropped = result { self.fail("voiceUnavailable") }
+            if let result = self.input?.yield(frame.audio), case .dropped = result { self.fail("voiceUnavailable") }
         }
         audio.onDrain = { [weak self] in self?.drained() }
         audio.onFailure = { [weak self] in self?.fail("voiceUnavailable") }
@@ -55,6 +63,7 @@ import EdgeCareCore
     func run(credentials: GeminiLiveCredentials, text: String? = nil) async throws {
         let current = generation
         finished = false; terminal = false; complete = false; ready = false; speaking = false
+        microphone = CalibratedMicrophoneInput()
         turns = 0; ids = []; userText = text ?? ""; replyText = ""; replyPCM = Data()
         inputReceived = text != nil; profileReceived = false; turnFinished = false; endStarted = nil
         lastSpeech = Date(); lastResponse = Date(); audibleOutputUntil = nil
@@ -84,7 +93,7 @@ import EdgeCareCore
                 if self.ready && !self.terminal && !self.speaking && !self.inputReceived && now.timeIntervalSince(self.lastSpeech) > 12 {
                     self.fail("conversationSilence"); return
                 }
-                if self.ready && (self.inputReceived || self.speaking) && now.timeIntervalSince(self.lastResponse) > 30 {
+                if self.ready && (self.inputReceived || self.speaking) && now.timeIntervalSince(max(self.lastResponse, self.lastSpeech)) > 30 {
                     self.fail("voiceUnavailable"); return
                 }
             }
@@ -98,7 +107,7 @@ import EdgeCareCore
                 if event.error != nil || event.goAway != nil { throw CoreError.providerUnavailable }
                 if event.setupComplete != nil {
                     guard !ready else { throw CoreError.invalidResponse }
-                    ready = true
+                    ready = true; lastSpeech = Date()
                     if capturing {
                         let pipe = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(12))
                         input = pipe.continuation
@@ -111,8 +120,21 @@ import EdgeCareCore
                             } catch { if !Task.isCancelled { self?.fail("voiceUnavailable") } }
                         }
                         try audio.startCapture()
-                        onPhase?(.listening)
+                        onPhase?(.calibrating)
                     } else if let text { try await connection.sendText(text); onPhase?(.processing) }
+                }
+                // Transcripts and interruptions can arrive in the same message as a
+                // tool call. Apply them first; Google does not guarantee their order.
+                if let content = event.serverContent {
+                    if content.interrupted == true {
+                        audio.interruptPlayback(); flushHistory(); replyPCM = Data()
+                        profileReceived = false; turnFinished = false; speaking = false
+                        audibleOutputUntil = nil
+                    }
+                    if let text = content.inputTranscription?.text {
+                        guard userText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
+                        userText += text; inputReceived = true; lastSpeech = Date(); onActivity?()
+                    }
                 }
                 if let tool = event.toolCall {
                     guard tool.functionCalls.count == 1, inputReceived else { throw CoreError.invalidResponse }
@@ -135,14 +157,6 @@ import EdgeCareCore
                     }
                 }
                 if let content = event.serverContent {
-                    if content.interrupted == true {
-                        audio.interruptPlayback(); flushHistory(); replyPCM = Data()
-                        profileReceived = false; inputReceived = false; turnFinished = false; speaking = false
-                    }
-                    if let text = content.inputTranscription?.text {
-                        guard userText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
-                        userText += text; inputReceived = true; onActivity?()
-                    }
                     if let text = content.outputTranscription?.text {
                         guard replyText.count + text.count <= 4000 else { throw CoreError.invalidResponse }
                         replyText += text
@@ -179,7 +193,7 @@ import EdgeCareCore
             finish()
         } else {
             turnFinished = false; profileReceived = false; inputReceived = false
-            lastSpeech = Date(); onPhase?(.listening)
+            audibleOutputUntil = Date(); lastSpeech = Date(); onPhase?(.listening)
         }
     }
     private func flushHistory() {
@@ -198,6 +212,6 @@ import EdgeCareCore
         watchdog?.cancel(); watchdog = nil; sender?.cancel(); sender = nil
         input?.finish(); input = nil
         audio.stop(); connection?.close(); connection = nil
-        userText = ""; replyText = ""; replyPCM = Data(); ids = []
+        userText = ""; replyText = ""; replyPCM = Data(); ids = []; microphone = CalibratedMicrophoneInput()
     }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 import EdgeCareCore
 
 @MainActor final class ConversationController: ObservableObject {
-    enum Phase: Equatable { case ready, listening, processing, speaking, paused, complete }
+    enum Phase: Equatable { case ready, calibrating, listening, processing, speaking, paused, complete }
     @Published private(set) var phase: Phase = .ready
     @Published private(set) var noticeKey: String?
     @Published private(set) var textOnly = false
@@ -15,10 +15,11 @@ import EdgeCareCore
     private weak var model: IntakeViewModel?
     private weak var app: AppSession?
 
-    var active: Bool { loop.isRunning || phase == .processing || phase == .speaking || phase == .listening }
+    var active: Bool { loop.isRunning || phase == .calibrating || phase == .processing || phase == .speaking || phase == .listening }
     var statusKey: String {
         switch phase {
         case .ready: "conversationReady"
+        case .calibrating: "microphoneCalibrating"
         case .listening: "conversationListening"
         case .processing: "saving"
         case .speaking: "conversationSpeaking"
@@ -32,6 +33,9 @@ import EdgeCareCore
         audio.onSilence = { [weak self] in self?.pause(notice: "conversationSilence") }
         audio.onFailure = { [weak self] in self?.pause(notice: "voiceUnavailable") }
         audio.onActivity = { [weak self] in self?.model?.lastActivity = Date() }
+        audio.onCalibrating = { [weak self] in self?.phase = .calibrating }
+        audio.onCalibrated = { [weak self] noisy in self?.phase = .listening; if noisy { self?.noticeKey = "microphoneNoisy" } }
+        live.onCalibrated = { [weak self] noisy in if noisy { self?.noticeKey = "microphoneNoisy" } }
         audio.onPlaybackFinished = { [weak self] in self?.playbackFinished() }
         live.onPhase = { [weak self] in self?.phase = $0 }
         live.onProfile = { [weak self] update in
@@ -72,7 +76,11 @@ import EdgeCareCore
                 guard !Task.isCancelled, self.generation == current, self.permitted else { return }
                 if engine == .geminiLive {
                     // Ask for microphone permission before minting the one-minute connection token.
-                    try await self.live.prepare(capture: text == nil)
+                    do { try await self.live.prepare(capture: text == nil) }
+                    catch {
+                        guard !Task.isCancelled, self.generation == current else { return }
+                        self.pause(notice: "microphoneUnavailable"); return
+                    }
                     guard !Task.isCancelled, self.generation == current else { return }
                     guard self.permitted else { self.live.stop(); return }
                     let credentials = try await session.liveVoiceSession(language: model.languageChosen ? model.language : nil,
@@ -102,7 +110,7 @@ import EdgeCareCore
         task?.cancel(); task = nil
         loop.stop()
         live.stop()
-        audio.clear()
+        audio.clear(); audio.resetCalibration()
         phase = model?.voiceIntakeComplete == true ? .complete : .paused
         if clearReply { replyAudio = nil }
     }
@@ -126,7 +134,7 @@ import EdgeCareCore
             guard self.generation == current, !Task.isCancelled, self.loop.isRunning, self.permitted else { return }
             let started = await self.audio.listen()
             guard self.generation == current, !Task.isCancelled else { return }
-            if !started { self.pause(notice: "voiceUnavailable") }
+            if !started { self.pause(notice: "microphoneUnavailable") }
         }
     }
 

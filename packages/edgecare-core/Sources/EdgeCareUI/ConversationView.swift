@@ -27,6 +27,12 @@ struct ConversationView: View {
                         Label(t(model.voiceIntakeComplete ? "updateConversation" : "startConversation"), systemImage: "mic.circle.fill")
                     }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).disabled(!enabled)
                 }
+                Button {
+                    conversation.start(model: model, app: app)
+                } label: {
+                    Label(t("recalibrateMicrophone"), systemImage: "arrow.clockwise")
+                }.buttonStyle(.bordered).frame(minHeight: 48)
+                    .disabled(!enabled || conversation.phase == .calibrating || conversation.phase == .processing || conversation.phase == .speaking)
                 TextField(t("turnHint"), text: $typedTurn, axis: .vertical).lineLimit(2...6).textFieldStyle(.roundedBorder)
                     .disabled(conversation.active)
                 Button(t("sendText")) {
