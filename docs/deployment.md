@@ -4,17 +4,17 @@ Production URL: [Edge-Care clinician workspace](https://edgecare-lissankoiralas-
 
 The `edgecare` Vercel project serves the CRM and native-app API. Neon Postgres on the Free plan in Frankfurt stores encrypted referrals and the shared demo registry. SQLite remains the local adapter. Hosting does not turn this demonstration into a validated clinical service or a deployed Solana registry.
 
-Production settings are server-side Vercel environment variables: `DATABASE_URL`, `EDGECARE_SESSION_SECRET`, issuer/clinician tokens, `EDGECARE_PUBLIC_ORIGIN`, `RUNWARE_API_KEY`, `VOICE_LLM_PROVIDER=runware`, `RUNWARE_MODEL=google:gemini@3-flash`, and ElevenLabs key/models/language voices. `DEMO_MODE=true`, `CHAIN=mock`, `LLM=ondevice` keep the synthetic demo adapters enabled; explicit `EDGECARE_CLOUD_VOICE=true` opts into cloud intake. Keys and private device configuration are excluded from Git and deployment source uploads.
+Production settings are server-side Vercel environment variables: `DATABASE_URL`, `EDGECARE_SESSION_SECRET`, issuer/clinician tokens, `EDGECARE_PUBLIC_ORIGIN`, `RUNWARE_API_KEY`, `VOICE_LLM_PROVIDER=runware`, `RUNWARE_MODEL=google:gemini@3-flash`, and ElevenLabs key/models/language voices. `DEMO_MODE=true`, `CHAIN=mock`, `LLM=ondevice` keep the synthetic demo adapters enabled; explicit `EDGECARE_CLOUD_VOICE=true` opts into cloud intake. Provider keys, database credentials and the session-signing secret are excluded from Git. The hosted demo's device access tokens are supplied in the repository's `edgecare-device.json`.
 
 Every mutation for a referral holds a Postgres transaction lock. Concurrent consumption has one winner, and retrying that winning operation remains idempotent. Hosted sessions use a stable server signing secret across instances. HTTPS origin checks and device tokens protect the API. `/health` checks the database and exposes no credentials.
 
 ## Connect existing Mac simulators
 
-Download the private `edgecare-device.json` supplied with the deployment. It contains device access tokens, not provider keys. Keep it private. From the updated repository on your Mac, with the simulators booted:
+From the repository on your Mac, with the simulators booted, use the committed device configuration:
 
 ```sh
 git pull --ff-only
-python3 scripts/connect-hosted.py --config ~/Downloads/edgecare-device.json
+python3 scripts/connect-hosted.py --config edgecare-device.json
 ```
 
 The command verifies backend health and relaunches installed kiosk, doctor and patient apps with connected mode and the HTTPS URL. It does not require a local server, credential wizard or native rebuild. It reports the actual simulator runtimes already running. Xcode Run may reset the environment to offline defaults; rerun the command after doing that.
