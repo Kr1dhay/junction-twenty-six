@@ -60,7 +60,7 @@ the research result, and complete the referral. The doctor/CRM sees the same
 saved result. You can skip the task at any time. Do not use it for patient care.
 
 Physical iPhones cannot reach a Mac via `127.0.0.1`; they need a separately
-configured reachable HTTPS backend/worker. The hosted Vercel CRM is unchanged.
+configured reachable HTTPS backend/worker. See the hosted research demo setup below.
 
 ### End-to-end check
 
@@ -160,3 +160,39 @@ Configure surrounding hosting and proxies consistently.
 
 These test protocol safety, arithmetic, abstention and MFCC execution—not
 cancer-detection accuracy.
+
+## Hosted conceptual research demo
+
+The separate Vercel project `edgecare-voice-research` serves this FastAPI worker;
+its project root is `services/voice-research`. `.python-version` pins Python 3.12
+for the hosted runtime, and `vercel.json` includes the numeric model files in the function bundle. Keep
+this deployment separate from the Next.js `edgecare` project. The repository-root
+`.vercelignore` deliberately excludes the worker from the normal frontend upload;
+worker deployments must explicitly upload the files in this directory.
+
+The hosted demo explicitly sets `VOICE_RESEARCH_HACKATHON_DEMO=true`, the pinned
+artifact path and SHA above, and a separate random `VOICE_RESEARCH_TOKEN` stored
+as a production secret in both projects. It does not set
+`VOICE_RESEARCH_APPROVED=true` or assert an upstream licence. The worker's model
+identity is `paterson-mfcc-lr-hackathon-demo` / `7811f6d8cc8a`.
+
+Production worker origin:
+`https://edgecare-voice-research-lissankoiralas-projects.vercel.app`.
+Worker `/health` and `/assess` both require the service bearer token. Platform
+SSO is disabled only for this worker, allowing the backend's private bearer
+request to reach those authenticated endpoints. Do not place its token in device
+configuration or browser code. `NUMBA_CACHE_DIR=/tmp/numba-cache` and
+`MPLCONFIGDIR=/tmp/matplotlib` keep library caches in writable ephemeral storage.
+
+The frontend backend needs production `EDGECARE_VOICE_RESEARCH=true`,
+`VOICE_RESEARCH_URL`, the same secret token, `VOICE_RESEARCH_MODEL_ID` and
+`VOICE_RESEARCH_MODEL_VERSION`; changes take effect after a new frontend
+production deployment. Authenticated GET `/demo/voice/research` checks readiness.
+POST requires a dedicated 2–12 second mono 16 kHz 16-bit PCM WAV with
+`consent: true`, `task: "sustained_a"`, `capture_mode: "measurement"` and
+`audio_base64`. Results are research labels only: `flagged`, `not_flagged` or
+`inconclusive`. Missing or mismatched configuration, failed checksum, invalid
+model output and worker failures do not produce a classification. Quiet or
+clipped recordings abstain. Research does not alter risk scoring, specialty,
+triage or urgency. Synthetic tone/silence checks establish software operation,
+not medical performance.

@@ -118,15 +118,18 @@ public struct SessionBanner: View {
 public struct PatientRootView: View {
     @State private var app = AppSession()
     @State private var intake = IntakeViewModel(source: .patientApp)
+    @State private var walletGeneration = 0
     public init() {}
     public var body: some View {
         TabView {
             NavigationStack { IntakeView(title: "Edge-Care", model: intake, app: app) }
                 .tabItem { Label(Copy.text("new", intake.language), systemImage: "bubble.left.and.text.bubble.right") }
             NavigationStack { WalletView(app: app, language: intake.language) }
+                .id(walletGeneration)
                 .tabItem { Label(Copy.text("wallet", intake.language), systemImage: "wallet.pass") }
             NavigationStack {
                 PatientProfileView(app: app, language: intake.language) { id in
+                    walletGeneration += 1
                     if intake.record?.id == id || intake.editingReferral?.original.id == id { intake.reset() }
                 }
             }.tabItem { Label(Copy.text("myProfile", intake.language), systemImage: "person.crop.circle") }
