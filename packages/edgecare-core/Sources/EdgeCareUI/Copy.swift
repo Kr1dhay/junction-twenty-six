@@ -8,6 +8,10 @@ enum Copy {
         return strings[key]?[index] ?? strings[key]?[0] ?? key
     }
     static let strings: [String: [String]] = [
+        "settings": ["Settings", "Asetukset", "Dejinta", "الإعدادات", "Настройки"],
+        "sources": ["Sources", "Lähteet", "Ilaha", "المصادر", "Источники"],
+        "privacyDetails": ["Privacy and care information", "Tietosuoja ja hoitotiedot", "Asturnaanta iyo macluumaadka daryeelka", "الخصوصية ومعلومات الرعاية", "Конфиденциальность и информация о помощи"],
+        "appointmentNotice": ["This does not reserve a real clinic appointment.", "Tämä ei varaa aikaa oikealle klinikalle.", "Tani ballan kama qabsanayso rug caafimaad oo dhab ah.", "لا يحجز هذا موعداً في عيادة حقيقية.", "Это не запись в настоящую клинику."],
         "consultTitle": ["Translated consultation", "Tulkattu vastaanotto", "La-tashi la turjumay", "استشارة مترجمة", "Консультация с переводом"],
         "consultConsent": ["This visit will be translated live. Your speech is sent to translation and transcription services (ElevenLabs and Google Gemini). Only the written notes you confirm are saved; no audio is kept. No name is recorded.", "Tämä käynti tulkataan reaaliajassa. Puheesi lähetetään käännös- ja litterointipalveluihin (ElevenLabs ja Google Gemini). Vain vahvistamasi kirjalliset muistiinpanot tallennetaan; ääntä ei säilytetä. Nimeä ei kirjata.", "Booqashadan si toos ah ayaa loo turjumi doonaa. Hadalkaaga waxaa loo diraa adeegyada turjumaadda iyo qoraalka (ElevenLabs iyo Google Gemini). Kaliya qoraallada aad xaqiijiso ayaa la kaydiyaa; cod lama hayo. Magac lama qoro.", "ستتم ترجمة هذه الزيارة مباشرة. يُرسل كلامك إلى خدمات الترجمة والنسخ (ElevenLabs و Google Gemini). تُحفظ فقط الملاحظات المكتوبة التي تؤكدها، ولا يُحتفظ بأي تسجيل صوتي. لا يُسجَّل أي اسم.", "Этот приём будет переводиться в реальном времени. Ваша речь передаётся сервисам перевода и расшифровки (ElevenLabs и Google Gemini). Сохраняются только подтверждённые вами письменные заметки; аудио не хранится. Имя не записывается."],
         "consultAgree": ["I agree", "Hyväksyn", "Waan ogolahay", "أوافق", "Я согласен(на)"],

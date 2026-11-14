@@ -1,5 +1,82 @@
 # EDI + Gemini visual review
 
+## Landscape fit
+
+The wide kiosk uses a compact layout only in landscape at widths of at least
+900 points, and never at accessibility Dynamic Type sizes. Normal labels use
+subheadline sizing, headings use title2, and page spacing is tighter. Text still
+scales with Dynamic Type; portrait, narrow windows, and accessibility sizes keep
+the single-column layout and scrolling. Styled actions and option rows keep
+touch targets of at least 44 points; the signature canvas keeps its full height.
+
+The structured intake uses a two-column symptom grid. Signature/code creation,
+booking verification, and existing-referral verification use the available
+horizontal space rather than making patients scroll through stacked fields.
+Voice setup places consent beside the microphone without shrinking the large
+microphone control. Full-screen voice uses smaller landscape headings/hints and
+a side-by-side, still-scrollable dialogue panel so the pause action stays visible.
+Both microphone controls have an outlined, raised button surface, a visible
+action label, and pressed feedback; busy-state microphone illustrations do not
+use that interactive treatment. Disabled controls remain visibly disabled.
+Expanded secondary information, long patient-entered text,
+the keyboard, and recovery/error states may still require scrolling.
+
+Geometry regressions check complete control frames before any scrolling or
+tapping, not only XCTest hittability (which can automatically scroll a control
+into view). No test submits a referral, verifies real credentials, or grants
+cloud voice consent.
+
+Verification: 28 focused unit tests pass. Geometry checks pass at 1180×820 for
+the structured intake, voice setup, routine safety questions, optional context,
+guidance, signature/code creation, booking verification, and existing-referral
+verification. The translated forms, accessibility single-column scrolling,
+portrait accessibility voice, and emergency guidance also pass. Reviewed the
+English, Arabic and Russian form captures, the sealing page, and the outlined
+microphone controls. Final checks run on a separate review simulator so kiosk
+interaction cannot affect their results. Expanded content and keyboard layouts
+are intentionally not covered by the no-scroll assertions.
+The final rebuilt app also passes all five full-screen voice-state checks with
+the pause action fully onscreen, microphone button dimensions of at least
+240×240 points, and successful read-aloud playback. These are presentation tests,
+not a new live Gemini audio or speaker-echo validation.
+
+## Kiosk decluttering
+
+Patient-facing kiosk pages prioritize the current question, next action, and
+essential safety/consent information:
+
+- Remove the persistent shared-demo badge and idle-timeout footer. Keep the
+  imminent session-clear warning and all timeout behavior.
+- Replace the large “Demo controls” toolbar label with a settings icon. Connection
+  status, offline simulation, sync, and sample credentials remain in that menu.
+- Keep welcome privacy information available in a collapsed disclosure. Cloud
+  voice disclosure/consent stays visible before starting voice.
+- Remove the repeated triage/score footnote. Simplify the fixed patient guidance
+  without changing routing logic, priority metadata, sources, or emergency text.
+- Do not show speech-recognition boilerplate under Read aloud. Playback progress
+  and failures remain visible; the kiosk form also omits technical storage hints.
+- Show OCR instructions only when letter text exists, and photo-assessment
+  limitations only when adding/reviewing a skin photo, not on the empty letter page.
+- Put source links in a collapsed “Sources” disclosure after the primary action.
+- Hide sample-signature/code instructions on the patient-facing sealing page,
+  but retain the code-loss warning and explicit acknowledgement.
+- Avoid unnecessary success/sync metadata after handoff, while retaining pending
+  states, failures, and recovery actions. Booking retains a concise warning that
+  no real clinic appointment is reserved.
+
+Screenshot tests navigate a synthetic intake through guidance and sealing without
+submitting a referral. They check that source links remain accessible and that
+112 advice remains prominent. Review builds exclude unrelated local edits and
+untracked duplicate Swift files, which are preserved in the working folder.
+
+Verification: 28 focused unit tests pass, including five-language guidance,
+unchanged priority metadata, intake safety, voice orchestration, and contrast.
+Screenshot navigation checks pass for welcome/form/voice readiness, privacy
+disclosure access, guidance with expandable sources, referral creation, booking,
+and emergency advice. Reviewed the guidance, optional-context, sealing, booking,
+and welcome captures. No referral was submitted and no cloud voice consent was
+granted. This cleanup pass was captured in light appearance.
+
 **Current voice interaction:** speaker-safe, tap-only interruption supersedes the
 spoken barge-in described in the historical review entries below. Microphone
 transmission pauses while Edi speaks and for a 500 ms echo tail; “Speak now”

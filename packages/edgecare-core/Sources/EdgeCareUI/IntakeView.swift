@@ -189,6 +189,24 @@ import EdgeCareCore
 
 public struct IntakeView: View {
     private let title: String
+    private let model: IntakeViewModel
+    private let app: AppSession
+    private let kiosk: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    public init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
+        self.title = title; self.model = model; self.app = app; self.kiosk = kiosk
+    }
+    public var body: some View {
+        GeometryReader { geometry in
+            IntakeLayoutView(title: title, model: model, app: app, kiosk: kiosk)
+                .environment(\.edgeCareCompactLayout, kiosk && geometry.size.width >= 900 &&
+                             geometry.size.width > geometry.size.height && !dynamicTypeSize.isAccessibilitySize)
+        }
+    }
+}
+
+private struct IntakeLayoutView: View {
+    private let title: String
     @Bindable private var model: IntakeViewModel
     @Bindable private var app: AppSession
     private let kiosk: Bool
@@ -198,23 +216,28 @@ public struct IntakeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.edgeCareCompactLayout) private var compact
     private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-    public init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
+    init(title: String, model: IntakeViewModel, app: AppSession, kiosk: Bool = false) {
         self.title = title; self.model = model; self.app = app; self.kiosk = kiosk
     }
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
-    public var body: some View {
+    var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                ViewThatFits(in: .horizontal) {
-                    HStack {
-                        SessionBanner(connected: app.connected, language: model.language).fixedSize()
-                        Spacer()
-                        languagePicker.fixedSize()
-                    }
-                    VStack(alignment: .leading, spacing: 12) {
-                        SessionBanner(connected: app.connected, language: model.language)
-                        languagePicker
+            VStack(alignment: .leading, spacing: compact ? 12 : 24) {
+                if kiosk {
+                    languagePicker.frame(maxWidth: .infinity, alignment: .trailing)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            SessionBanner(connected: app.connected, language: model.language).fixedSize()
+                            Spacer()
+                            languagePicker.fixedSize()
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            SessionBanner(connected: app.connected, language: model.language)
+                            languagePicker
+                        }
                     }
                 }
                 if model.step > 0 && model.step < 7 && !(model.step == 1 && model.inputMode == "voice") {
@@ -235,12 +258,17 @@ public struct IntakeView: View {
                         }
                         Spacer()
                         Button(t("end"), role: .destructive) { reset() }.buttonStyle(.edgeCareSecondary)
+                            .accessibilityIdentifier("intakeEndSession")
                     }
                 }
-                if kiosk { Text(t(idleSoon ? "idleSoon" : "idle")).font(.footnote).foregroundStyle(idleSoon ? .primary : .secondary) }
+                if kiosk && idleSoon {
+                    Text(t("idleSoon")).font(.footnote).accessibilityAddTraits(.updatesFrequently)
+                }
             }
-            .padding(24).frame(maxWidth: kiosk && model.step == 0 ? 980 : 720).frame(maxWidth: .infinity)
+            .padding(compact ? 20 : 24)
+            .frame(maxWidth: compact ? 1020 : kiosk && model.step == 0 ? 980 : 720).frame(maxWidth: .infinity)
         }
+        .font(compact ? .subheadline : .body)
         .background(EdgeCareBackground())
         .navigationTitle(title)
         #if os(iOS)
@@ -275,10 +303,19 @@ public struct IntakeView: View {
         .toolbar {
             ToolbarItem(placement: .principal) { EdgeCareWordmark(size: 18) }
             ToolbarItem {
-                Menu(t("demoControls")) {
+                Menu {
+                    if kiosk { Text(t(app.connected ? "connected" : "local")) }
                     if app.connected { Toggle(t("simulateOffline"), isOn: $app.simulateOffline) }
                     Button(t("sync")) { Task { await app.sync() } }.disabled(app.busy)
+                    if kiosk && model.step == 6 && !model.isUpdatingReferral {
+                        Divider()
+                        Button(t("demoUse")) { useSampleCredentials() }
+                    }
+                } label: {
+                    if kiosk { Image(systemName: "gearshape").accessibilityLabel(t("settings")) }
+                    else { Text(t("demoControls")) }
                 }
+                .accessibilityIdentifier("intakeSettings")
             }
         }
         .onDisappear {
@@ -307,7 +344,7 @@ public struct IntakeView: View {
             }
             if model.inputMode != "voice" {
                 guideHeading(t("concernTitle"), pose: .listening)
-                Text(t("anonymous")).foregroundStyle(.secondary)
+                if !kiosk { Text(t("anonymous")).foregroundStyle(.secondary) }
             }
             Picker(t("inputMode"), selection: $model.inputMode) {
                 Text(t("form")).tag("form")
@@ -316,7 +353,7 @@ public struct IntakeView: View {
             if model.inputMode == "voice" {
                 ConversationView(model: model, app: app, showingConversation: $voiceScreenPresented)
             } else {
-                StructuredConcernForm(model: model)
+                StructuredConcernForm(model: model, compact: kiosk)
                 if model.languageDetected { Text(t("detected")).font(.footnote) }
                 speechControls(prompt: t("concernTitle"), input: true)
             }
@@ -340,15 +377,19 @@ public struct IntakeView: View {
         case 5:
             guideHeading(t("guidance"), pose: .nextStep)
             if let guidance = model.guidance {
-                Text(guidance.message).font(.title3)
-                Text(t("review")).font(.subheadline).foregroundStyle(.secondary)
+                Text(guidance.message).font(compact ? .body : .title3)
+                if !kiosk { Text(t("review")).font(.subheadline).foregroundStyle(.secondary) }
                 speechControls(prompt: guidance.message, input: false)
-                safetySources
+                if !kiosk { safetySources }
                 if guidance.requiresEmergencyHelp {
                     emergencyNotice
                     Text(t("emergencyContinueExplanation"))
                     primary(t("continueReferral")) { model.proceedToReferral() }
                 } else { primary(t(model.isUpdatingReferral ? "reviewUpdate" : "seal")) { model.proceedToReferral() } }
+                if kiosk {
+                    DisclosureGroup(t("sources")) { safetySources.padding(.top, 8) }
+                        .font(.subheadline).accessibilityIdentifier("guidanceSources")
+                }
             }
         case 6:
             if model.isUpdatingReferral {
@@ -358,34 +399,36 @@ public struct IntakeView: View {
                 primary(t("saveUpdate")) { Task { await model.enroll(using: app) } }.disabled(model.busy || app.session == nil)
             } else {
                 heading(t("seal"))
-                Text(t("signature")).font(.headline)
-                SignaturePad(strokes: $model.strokes, language: model.language)
-                PINField(title: t("pin"), value: $model.passcode)
-                PINField(title: t("confirmPin"), value: $model.confirmation)
-                Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark").font(.body.weight(.medium))
+                credentialFields
+                Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark")
+                    .font((compact ? Font.subheadline : .body).weight(.medium))
                 Toggle(t("understand"), isOn: $model.understood).padding(.vertical, 8)
-                speechControls(prompt: t("noReset"), input: false)
                 if model.passcode.count == 4 && model.confirmation.count == 4 && model.passcode != model.confirmation {
                     Text(t("pinMismatch")).foregroundStyle(.red)
                 }
-                primary(t("seal")) { Task { await model.enroll(using: app) } }
-                    .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
-                DisclosureGroup(t("demoDisclosure")) {
-                    Text(t("demoDetail")).font(.caption)
-                    Button(t("demoUse")) {
-                        model.strokes = DemoData.signatureStrokes(); model.passcode = "1234"; model.confirmation = "1234"
-                    }.buttonStyle(.edgeCareSecondary)
-                }.font(.footnote)
+                let actions = compact ? AnyLayout(HStackLayout(alignment: .top, spacing: 24)) :
+                    AnyLayout(VStackLayout(alignment: .leading, spacing: 24))
+                actions {
+                    speechControls(prompt: t("noReset"), input: false)
+                    primary(t("seal")) { Task { await model.enroll(using: app) } }
+                        .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
+                }
+                if !kiosk {
+                    DisclosureGroup(t("demoDisclosure")) {
+                        Text(t("demoDetail")).font(.caption)
+                        Button(t("demoUse")) { useSampleCredentials() }.buttonStyle(.edgeCareSecondary)
+                    }.font(.footnote)
+                }
             }
         case 7:
             guideHeading(t(model.didUpdateReferral ? "recordUpdated" : "ready"), pose: .nextStep)
             if let record = model.record {
                 ReferralHandoff(record: record, language: model.language)
                 let walletState = app.wallet.first(where: { $0.id == record.id })?.state
-                if !model.didUpdateReferral {
+                if !model.didUpdateReferral && (!kiosk || !app.connected || walletState != .available) {
                     Text(t(app.connected ? (walletState == .available ? "available" : "pending") : "local")).font(.footnote).foregroundStyle(.secondary)
                 }
-                if app.connected {
+                if app.connected && (!kiosk || walletState != .available) {
                     Button(t("sync")) { Task { await app.sync() } }.buttonStyle(.bordered).disabled(app.busy)
                     if let message = app.message { Text(message).font(.footnote) }
                 }
@@ -396,7 +439,21 @@ public struct IntakeView: View {
         default: EmptyView()
         }
     }
-    private func heading(_ text: String) -> some View { Text(text).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
+    private var credentialFields: some View {
+        let layout = compact ? AnyLayout(HStackLayout(alignment: .top, spacing: 32)) :
+            AnyLayout(VStackLayout(alignment: .leading, spacing: 24))
+        return layout {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(t("signature")).font(.headline)
+                SignaturePad(strokes: $model.strokes, language: model.language)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: compact ? 20 : 24) {
+                PINField(title: t("pin"), value: $model.passcode)
+                PINField(title: t("confirmPin"), value: $model.confirmation)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private func heading(_ text: String) -> some View { Text(text).font((compact ? Font.title2 : .largeTitle).weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader).fixedSize(horizontal: false, vertical: true) }
     private var languagePicker: some View {
         Picker(t("language"), selection: Binding(get: { model.language }, set: { model.languageChosen = true; model.language = $0 })) {
             ForEach(Array(zip(Copy.languages, Copy.names)), id: \.0) { code, name in Text(name).tag(code) }
@@ -406,19 +463,19 @@ public struct IntakeView: View {
     /// Heading with Edi beside it, as on the patient intake study.
     private func guideHeading(_ text: String, pose: EdiView.Pose) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            EdiView(pose: pose).frame(width: 64, height: 66)
+            EdiView(pose: pose).frame(width: compact ? 48 : 64, height: compact ? 50 : 66)
             heading(text)
         }
     }
     private func primary(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title) }
-            .buttonStyle(.edgeCarePrimary).disabled(model.busy)
+            .buttonStyle(.edgeCarePrimary).disabled(model.busy).accessibilityIdentifier("intakePrimaryAction")
     }
     private var welcomeIntro: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: compact ? 14 : 20) {
             heading(t("welcome"))
-            Text(t("anonymous")).font(.title3.weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
-            Text(t("privacy")).foregroundStyle(.secondary)
+            Text(t("anonymous")).font((compact ? Font.body : .title3).weight(.semibold)).foregroundStyle(EdgeCareStyle.graphite)
+            if !kiosk { Text(t("privacy")).foregroundStyle(.secondary) }
             Text(t("language")).font(.headline).foregroundStyle(EdgeCareStyle.graphite)
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(spacing: 12) { welcomeLanguages }
@@ -434,6 +491,9 @@ public struct IntakeView: View {
                 } else {
                     HStack(spacing: 12) { secondaryWelcomeActions }
                 }
+                DisclosureGroup(t("privacyDetails")) {
+                    Text(t("privacy")).font(.subheadline).foregroundStyle(.secondary).padding(.top, 8)
+                }.font(.subheadline)
             }
         }
     }
@@ -460,8 +520,8 @@ public struct IntakeView: View {
         }.padding(16).background(.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
     }
     private func safetyQuestion(_ question: SafetyQuestion) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(t("tailoredSafety")).font(.subheadline).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: compact ? 12 : 20) {
+            if !kiosk { Text(t("tailoredSafety")).font(.subheadline).foregroundStyle(.secondary) }
             Text("\(model.safety.currentIndex + 1) / \(model.safety.totalCount)").font(.caption)
             guideHeading(t(question.copyKey), pose: .listening)
             ForEach(["yes", "no", "unsure"], id: \.self) { answer in
@@ -496,8 +556,12 @@ public struct IntakeView: View {
                     } label: { Label(t(speech.listening ? "stop" : "speak"), systemImage: speech.listening ? "stop.circle" : "mic") }
                 }
             }.buttonStyle(.edgeCareSecondary)
-            Text(t(speech.unavailable ? "speechUnavailable" : speech.playbackStarted ? "readingAloud" : speech.speaking ? "preparingReadAloud" : "speechPrivacy"))
-                .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("readAloudStatus")
+            if speech.unavailable || speech.speaking {
+                Text(t(speech.unavailable ? "speechUnavailable" : speech.playbackStarted ? "readingAloud" : "preparingReadAloud"))
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("readAloudStatus")
+            } else if input && !kiosk {
+                Text(t("speechPrivacy")).font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
     private var safetySources: some View {
@@ -506,6 +570,10 @@ public struct IntakeView: View {
             Link("HUS · urgent and emergency care in Finland", destination: URL(string: "https://www.hus.fi/en/patient/treatments-and-examinations/prehospital-emergency-care")!)
             Link("NHS · breathing symptoms", destination: URL(string: "https://www.nhs.uk/symptoms/shortness-of-breath/")!)
         }.font(.footnote)
+    }
+    private func useSampleCredentials() {
+        model.strokes = DemoData.signatureStrokes(); model.passcode = "1234"; model.confirmation = "1234"
+        model.lastActivity = Date()
     }
     private func reset() { speech.stop(); model.reset(); idleSoon = false; app.message = nil }
 }

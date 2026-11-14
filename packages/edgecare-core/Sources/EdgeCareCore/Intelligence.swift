@@ -79,19 +79,19 @@ public struct OnDeviceTriageEngine: TriageEngine {
         switch language {
         case .en:
             if emergency { return "If you have chest pain, severe trouble breathing, heavy bleeding or loss of consciousness now, call 112 immediately. Do not wait for a referral. This scripted demo cannot assess an emergency." }
-            return (letter ? "Ask your health centre to explain the letter and any appointment or screening instructions. " : "Arrange a clinician review for a new or changing lump, mole, unexplained bleeding or symptoms that persist or worsen. ") + "This scripted demo cannot diagnose or rule out cancer. The displayed score is a demo priority, not a medical risk estimate."
+            return (letter ? "Ask your health centre to explain the letter and any appointment or screening instructions. " : "Arrange a clinician review for a new or changing lump, mole, unexplained bleeding or symptoms that persist or worsen. ") + "This guidance cannot diagnose or rule out cancer."
         case .fi:
             if emergency { return "Jos sinulla on nyt rintakipua, vaikea hengitysvaikeus, runsas verenvuoto tai tajuttomuutta, soita heti 112. Älä odota lähetettä. Tämä esittely ei arvioi hätätilannetta." }
-            return (letter ? "Pyydä terveyskeskusta selittämään kirje sekä ajanvaraus- ja seulontaohjeet. " : "Varaa ammattilaisen arvio uudesta tai muuttuvasta kyhmystä tai luomesta, selittämättömästä verenvuodosta tai jatkuvista tai pahenevista oireista. ") + "Tämä käsikirjoitettu esittely ei voi todeta eikä sulkea pois syöpää. Pisteet ovat esittelyn prioriteetti, eivät lääketieteellinen riskiarvio."
+            return (letter ? "Pyydä terveyskeskusta selittämään kirje sekä ajanvaraus- ja seulontaohjeet. " : "Varaa ammattilaisen arvio uudesta tai muuttuvasta kyhmystä tai luomesta, selittämättömästä verenvuodosta tai jatkuvista tai pahenevista oireista. ") + "Nämä ohjeet eivät totea eivätkä sulje pois syöpää."
         case .so:
             if emergency { return "Haddii aad hadda leedahay xanuun laabta ah, neefsasho aad u adag, dhiigbax badan ama miyir-beel, wac 112 isla markiiba. Ha sugin gudbin. Bandhiggan ma qiimeyn karo xaalad degdeg ah." }
-            return (letter ? "Xarunta caafimaadka ka codso inay kuu sharaxdo warqadda iyo tilmaamaha ballanta ama baaritaanka. " : "La xiriir xirfadle caafimaad haddii aad leedahay buro cusub ama isbeddelaysa, bar maqaarka isbeddelaysa, dhiigbax aan la sharxi karin ama calaamado sii socda ama sii xumaanaya. ") + "Bandhiggan qoraalka ku salaysan ma xaqiijin karo mana diidi karo kansar. Dhibcuhu waa kala-hormarinta bandhigga, mana aha qiyaas caafimaad."
+            return (letter ? "Xarunta caafimaadka ka codso inay kuu sharaxdo warqadda iyo tilmaamaha ballanta ama baaritaanka. " : "La xiriir xirfadle caafimaad haddii aad leedahay buro cusub ama isbeddelaysa, bar maqaarka isbeddelaysa, dhiigbax aan la sharxi karin ama calaamado sii socda ama sii xumaanaya. ") + "Tilmaamahani ma xaqiijin karaan mana diidi karaan kansar."
         case .ar:
             if emergency { return "إذا كان لديك الآن ألم في الصدر أو صعوبة شديدة في التنفس أو نزيف شديد أو فقدان للوعي، اتصل فوراً بالرقم 112. لا تنتظر الإحالة. لا يستطيع هذا العرض تقييم حالة طارئة." }
-            return (letter ? "اطلب من المركز الصحي شرح الرسالة وتعليمات الموعد أو الفحص. " : "اطلب تقييماً من مختص عند ظهور كتلة جديدة أو متغيرة أو شامة متغيرة أو نزيف غير مفسر أو أعراض مستمرة أو متفاقمة. ") + "هذا عرض بنصوص ثابتة ولا يمكنه تشخيص السرطان أو استبعاده. الدرجة أولوية تجريبية وليست تقديراً طبياً للمخاطر."
+            return (letter ? "اطلب من المركز الصحي شرح الرسالة وتعليمات الموعد أو الفحص. " : "اطلب تقييماً من مختص عند ظهور كتلة جديدة أو متغيرة أو شامة متغيرة أو نزيف غير مفسر أو أعراض مستمرة أو متفاقمة. ") + "هذه الإرشادات لا تشخّص السرطان ولا تستبعده."
         case .ru:
             if emergency { return "Если сейчас есть боль в груди, сильное затруднение дыхания, сильное кровотечение или потеря сознания, немедленно звоните 112. Не ждите направления. Этот демонстрационный сценарий не оценивает экстренные состояния." }
-            return (letter ? "Попросите медицинский центр объяснить письмо и указания о приёме или скрининге. " : "Обратитесь к специалисту при новом или меняющемся уплотнении, изменении родинки, необъяснимом кровотечении, длительных или усиливающихся симптомах. ") + "Этот демонстрационный сценарий не может диагностировать или исключить рак. Баллы обозначают приоритет демонстрации, а не медицинский риск."
+            return (letter ? "Попросите медицинский центр объяснить письмо и указания о приёме или скрининге. " : "Обратитесь к специалисту при новом или меняющемся уплотнении, изменении родинки, необъяснимом кровотечении, длительных или усиливающихся симптомах. ") + "Эти рекомендации не могут диагностировать или исключить рак."
         }
     }
     private static func questions(language: SupportedLanguage) -> [String] {

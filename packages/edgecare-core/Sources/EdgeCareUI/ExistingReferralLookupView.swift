@@ -13,13 +13,14 @@ struct ExistingReferralLookupView: View {
     @State private var generation = 0
     @State private var lastActivity = Date()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.edgeCareCompactLayout) private var compact
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(t("updateExisting")).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: compact ? 12 : 20) {
+            Text(t("updateExisting")).font((compact ? Font.title2 : .largeTitle).weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
             Text(t("verifyToUpdate"))
-            PINField(title: t("enterPin"), value: $passcode).disabled(busy)
-            SignaturePad(strokes: $strokes, language: model.language).id(generation).disabled(busy)
+            ReferralVerificationFields(title: t("enterPin"), passcode: $passcode, strokes: $strokes,
+                                       language: model.language).id(generation).disabled(busy)
             Button(t("findExisting")) { find() }.buttonStyle(.edgeCarePrimary)
                 .disabled(busy || app.session == nil || passcode.count != 4 || strokes.flatMap { $0 }.count < 4)
             if busy { ProgressView(t("saving")) }

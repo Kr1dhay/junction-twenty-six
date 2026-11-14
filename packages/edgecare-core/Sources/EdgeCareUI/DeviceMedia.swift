@@ -216,17 +216,21 @@ struct EvidenceCapture: View {
             if busy { ProgressView(Copy.text("saving", language)) }
             if let message { Text(message).font(.subheadline).foregroundStyle(.secondary) }
             if isLetter || !letterText.isEmpty {
-                Text(Copy.text("ocr", language)).font(.subheadline)
+                if !letterText.isEmpty { Text(Copy.text("ocr", language)).font(.subheadline) }
                 TextEditor(text: $letterText).frame(minHeight: 130).scrollContentBackground(.hidden).padding(8)
                     .background(EdgeCareStyle.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(EdgeCareStyle.hairline))
-                Button(Copy.text("remove", language), role: .destructive) { letterText = "" }
+                if !letterText.isEmpty {
+                    Button(Copy.text("remove", language), role: .destructive) { letterText = "" }
+                }
             }
             if lesionPresent {
                 Label(Copy.text("photoAdded", language), systemImage: "checkmark.circle")
                 Button(Copy.text("remove", language), role: .destructive) { lesionPresent = false }
             }
-            Text(Copy.text("vision", language)).font(.subheadline).foregroundStyle(.secondary)
+            if !isLetter || lesionPresent {
+                Text(Copy.text("vision", language)).font(.subheadline).foregroundStyle(.secondary)
+            }
         }
         .sheet(isPresented: $camera) { CameraCapture { data in if let data { operation = Task { await process(data) } } }.ignoresSafeArea() }
         .onChange(of: selection) { _, item in
@@ -248,7 +252,7 @@ struct EvidenceCapture: View {
                 guard !Task.isCancelled else { return }
                 if text.isEmpty { message = Copy.text("error", language) } else { letterText = String(text.prefix(6000)); message = nil }
             } catch { message = Copy.text("error", language) }
-        } else { guard !Task.isCancelled else { return }; lesionPresent = true; message = Copy.text("photoAdded", language) }
+        } else { guard !Task.isCancelled else { return }; lesionPresent = true; message = nil }
     }
 }
 #else

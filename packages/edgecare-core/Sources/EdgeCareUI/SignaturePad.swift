@@ -5,11 +5,12 @@ public struct SignaturePad: View {
     @Binding var strokes: [[SignaturePoint]]
     let language: String
     @State private var current: [SignaturePoint] = []
+    @Environment(\.edgeCareCompactLayout) private var compact
     public init(strokes: Binding<[[SignaturePoint]]>, language: String = "en") {
         _strokes = strokes; self.language = language
     }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: compact ? 8 : 12) {
             Text(Copy.text("signatureHint", language)).font(.subheadline).foregroundStyle(.secondary)
             Canvas { context, _ in
                 for stroke in strokes + [current] where !stroke.isEmpty {
@@ -33,7 +34,9 @@ public struct SignaturePad: View {
                     current.append(SignaturePoint(x: Double(value.location.x), y: Double(value.location.y), time: Date().timeIntervalSince1970))
                 }
                 .onEnded { _ in if !current.isEmpty { strokes.append(current) }; current = [] })
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(Copy.text("signature", language))
+            .accessibilityIdentifier("signatureCanvas")
             .accessibilityHint(Copy.text("signatureHint", language))
             .accessibilityAddTraits(.allowsDirectInteraction)
             Button(Copy.text("clear", language), role: .destructive) { strokes = []; current = [] }.frame(minHeight: 44)
@@ -48,6 +51,7 @@ struct PINField: View {
     @Binding var value: String
     @FocusState private var focused: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.edgeCareCompactLayout) private var compact
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.subheadline.weight(.medium)).foregroundStyle(EdgeCareStyle.graphite)
@@ -69,7 +73,7 @@ struct PINField: View {
                         shape.fill(EdgeCareStyle.card)
                             .overlay(shape.strokeBorder(active ? EdgeCareStyle.magenta : EdgeCareStyle.hairline, lineWidth: active ? 2 : 1.5))
                             .overlay { if index < value.count { Circle().fill(EdgeCareStyle.graphite).frame(width: 12, height: 12) } }
-                            .frame(width: 54, height: 60)
+                            .frame(width: compact ? 48 : 54, height: compact ? 52 : 60)
                     }
                 }
                 .contentShape(Rectangle())
@@ -77,6 +81,24 @@ struct PINField: View {
                 .accessibilityHidden(true)
             }
             .opacity(isEnabled ? 1 : 0.5)
+        }
+    }
+}
+
+/// Verification stays side by side on the landscape kiosk, and stacks at
+/// accessibility sizes or on narrower screens.
+struct ReferralVerificationFields: View {
+    let title: String
+    @Binding var passcode: String
+    @Binding var strokes: [[SignaturePoint]]
+    let language: String
+    @Environment(\.edgeCareCompactLayout) private var compact
+    var body: some View {
+        let layout = compact ? AnyLayout(HStackLayout(alignment: .top, spacing: 32)) :
+            AnyLayout(VStackLayout(alignment: .leading, spacing: 20))
+        layout {
+            PINField(title: title, value: $passcode).frame(maxWidth: .infinity, alignment: .leading)
+            SignaturePad(strokes: $strokes, language: language).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
