@@ -91,10 +91,11 @@ export async function runVoiceTurn(input: VoiceTurnRequest, config = voiceConfig
   }
   const patientContext = JSON.stringify({ transcript, detected_language: detected ?? null, preferred_language: input.language ?? null, previous_profile: input.profile ?? null, conversation_history: input.history ?? [] });
   // Runware documents OpenAI-compatible Chat Completions with AIR model IDs.
+  // Force a named function so reasoning/free text cannot be mistaken for structured data.
   // https://runware.ai/docs/tools/compatible-apis
   const conversation = runware ? await request("https://api.runware.ai/v1/chat/completions", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.runwareKey}` },
-    body: JSON.stringify({ model: config.runwareModel, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: patientContext }], response_format: { type: "json_schema", json_schema: { name: "intake_turn", strict: true, schema: turnJSON } }, temperature: 0.2, max_tokens: 4096 }),
+    body: JSON.stringify({ model: config.runwareModel, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: patientContext }], tools: [{ type: "function", function: { name: "record_intake_turn", description: "Record the patient-facing response and English intake profile.", strict: true, parameters: turnJSON } }], tool_choice: { type: "function", function: { name: "record_intake_turn" } }, parallel_tool_calls: false, temperature: 0.2, max_tokens: 4096 }),
   }) : await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel!)}:generateContent`, {
     method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiKey! },
     body: JSON.stringify({
@@ -107,8 +108,8 @@ export async function runVoiceTurn(input: VoiceTurnRequest, config = voiceConfig
   let generated: z.infer<typeof turnSchema>;
   try {
     if (runware) {
-      const response = z.object({ choices: z.array(z.object({ finish_reason: z.literal("stop"), message: z.object({ content: z.string().min(1), refusal: z.null().optional() }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
-      generated = turnSchema.parse(JSON.parse(response.choices[0]!.message.content));
+      const response = z.object({ choices: z.array(z.object({ finish_reason: z.literal("tool_calls"), message: z.object({ tool_calls: z.array(z.object({ type: z.literal("function"), function: z.object({ name: z.literal("record_intake_turn"), arguments: z.string().min(1) }) })).length(1), refusal: z.null().optional() }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
+      generated = turnSchema.parse(JSON.parse(response.choices[0]!.message.tool_calls[0]!.function.arguments));
     } else {
       const response = z.object({ candidates: z.array(z.object({ content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
       generated = turnSchema.parse(JSON.parse(response.candidates[0]!.content.parts.map(part => part.text ?? "").join("")));

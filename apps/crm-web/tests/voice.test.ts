@@ -84,7 +84,7 @@ test("voice route validates consent and returns unavailable with no configured l
 });
 
 const runwareConfig: VoiceConfig = { ...config, provider: "runware", runwareKey: "runware-test-secret", runwareModel: "google:gemini@3.1-pro", geminiKey: undefined, geminiModel: undefined };
-const runwareResponse = (value: unknown = generated("fi"), finish_reason = "stop") => Response.json({ choices: [{ finish_reason, message: { content: JSON.stringify(value), refusal: null } }] });
+const runwareResponse = (value: unknown = generated("fi"), finish_reason = "tool_calls") => Response.json({ choices: [{ finish_reason, message: { tool_calls: [{ type: "function", function: { name: "record_intake_turn", arguments: JSON.stringify(value) } }], refusal: null } }] });
 
 test("Runware uses the configured Gemini text model and structured schema with server-side credentials", async () => {
   const result = await runVoiceTurn({ consent: true, text: "Ihossa on muutos", profile, history: audio.history }, runwareConfig, async (url, init) => {
@@ -93,10 +93,11 @@ test("Runware uses the configured Gemini text model and structured schema with s
     assert.equal(init!.cache, "no-store");
     const body = JSON.parse(init!.body as string);
     assert.equal(body.model, "google:gemini@3.1-pro");
-    assert.equal(body.response_format.type, "json_schema");
-    assert.equal(body.response_format.json_schema.strict, true);
-    assert.equal(body.response_format.json_schema.schema.additionalProperties, false);
-    assert.equal(body.response_format.json_schema.schema.properties.profile.additionalProperties, false);
+    assert.equal(body.tool_choice.function.name, "record_intake_turn");
+    assert.equal(body.parallel_tool_calls, false);
+    assert.equal(body.tools[0].function.strict, true);
+    assert.equal(body.tools[0].function.parameters.additionalProperties, false);
+    assert.equal(body.tools[0].function.parameters.properties.profile.additionalProperties, false);
     assert.match(body.messages[0].content, /ALWAYS contain English/);
     assert.deepEqual(JSON.parse(body.messages[1].content).previous_profile, profile);
     assert.deepEqual(JSON.parse(body.messages[1].content).conversation_history, audio.history);
@@ -126,4 +127,15 @@ test("Runware preserves externally detected speech language validation", async (
   let count = 0;
   await assert.rejects(runVoiceTurn(audio, runwareConfig, async () => ++count === 1 ? Response.json({ text: "Somali input", language_code: "so", language_probability: 0.99 }) : runwareResponse(generated("en"))), /did not match/);
   assert.equal(count, 2);
+});
+
+test("Runware accepts only the single named structured call, never JSON scraped from prose", async () => {
+  const validTool = { type: "function", function: { name: "record_intake_turn", arguments: JSON.stringify(generated("en")) } };
+  const response = (tool_calls: unknown[], content = "ignored provider reasoning") => Response.json({ choices: [{ finish_reason: "tool_calls", message: { tool_calls, content } }] });
+  const result = await runVoiceTurn({ consent: true, text: "hello" }, runwareConfig, async () => response([validTool]), undefined, false);
+  assert.deepEqual(result.profile, profile);
+  assert.equal(JSON.stringify(result).includes("reasoning"), false);
+  for (const tools of [[], [validTool, validTool], [{ ...validTool, function: { ...validTool.function, name: "other_tool" } }], [{ ...validTool, function: { ...validTool.function, arguments: `Explanation: ${validTool.function.arguments}` } }]]) {
+    await assert.rejects(runVoiceTurn({ consent: true, text: "hello" }, runwareConfig, async () => response(tools, JSON.stringify(generated())), undefined, false), /invalid profile/);
+  }
 });

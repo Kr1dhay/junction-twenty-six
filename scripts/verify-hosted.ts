@@ -67,7 +67,7 @@ async function main() {
     for (const [language, text] of Object.entries(texts)) {
       const started = Date.now();
       const response = await call("/demo/voice/turn", issuer, { consent: true, text });
-      assert.equal(response.status, 200, `Voice HTTP status for ${language}`);
+      assert.equal(response.status, 200, response.ok ? undefined : `Voice ${language}: ${await response.text()}`);
       const turn = voiceTurnResponseSchema.parse(await response.json());
       assert.equal(turn.detected_language, language);
       assert.equal(turn.speech_available, true);
