@@ -42,7 +42,7 @@ import XCTest
         let api = MockReferralAPI(records: [original])
         let first = try EnrollmentService().prepareUpdate(session: edit, draft: draft(duration: "Five days"))
         try await api.update(first); try await api.update(first)
-        let records = await api.list()
+        let records = try await api.list()
         XCTAssertEqual(records, [first.record])
         let stale = try EnrollmentService().prepareUpdate(session: edit, draft: draft(duration: "Six days"))
         do { try await api.update(stale); XCTFail("Stale update must fail") }
@@ -59,13 +59,13 @@ import XCTest
             wallet: try ReferralWallet(storeURL: directory.appendingPathComponent("wallet.enc"), key: key),
             outbox: try ReferralOutbox(storeURL: directory.appendingPathComponent("outbox.enc"), key: key), chain: chain, api: api)
         try await chain.create(referralID: original.id, hash: original.commitmentHash)
-        try await chain.spend(referralID: original.id, hash: original.commitmentHash)
+        try await chain.spend(referralID: original.id, hash: original.commitmentHash, operationID: UUID().uuidString.lowercased())
         let before = await chain.read(referralID: original.id)
         let edit = try unlock(original), update = try EnrollmentService().prepareUpdate(session: edit, draft: draft(duration: "Five days"))
         let saved = try await session.updateReferral(update, authorization: edit)
         XCTAssertEqual(saved.id, original.id)
         XCTAssertEqual(try unlock(saved).clinicalProfile.durationEnglish, "Five days")
-        let after = await chain.read(referralID: original.id), records = await api.list()
+        let after = await chain.read(referralID: original.id), records = try await api.list()
         XCTAssertEqual(before, after)
         XCTAssertEqual(records.count, 1)
         let state = await session.wallet.entry(id: original.id)?.state

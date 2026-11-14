@@ -43,7 +43,7 @@ struct DemoHTTPTransport: Sendable {
         let loopback = ["localhost", "127.0.0.1", "::1"].contains(baseURL.host ?? "")
         guard baseURL.scheme == "https" || (baseURL.scheme == "http" && loopback) else { throw CoreError.invalidConfiguration }
         let url = path.reduce(baseURL) { $0.appendingPathComponent($1) }
-        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body; request.timeoutInterval = path.contains("voice") || path.contains("profile") ? 150 : 15
+        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body; request.timeoutInterval = path.contains("voice") || path.contains("profile") || path.contains("notes") ? 150 : path.contains("consultations") ? 45 : 15
         request.cachePolicy = .reloadIgnoringLocalCacheData
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if let token = issuer ? (issuerToken ?? bearerToken) : bearerToken, !token.isEmpty {

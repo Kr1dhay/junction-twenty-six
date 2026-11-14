@@ -172,6 +172,8 @@ public struct DoctorVerificationView: View {
     @State private var error: String?
     @State private var lastActivity = Date()
     @StateObject private var speech = SpeechController()
+    @State private var consulting = false
+    @State private var canConsult = false
     @Environment(\.scenePhase) private var scenePhase
     public init(record: ReferralRecord, app: AppSession, verification: PatientVerification? = nil) {
         self.record = record; self.app = app; _language = State(initialValue: record.language)
@@ -196,6 +198,13 @@ public struct DoctorVerificationView: View {
                     Label("PATIENT VERIFIED", systemImage: "checkmark.seal.fill")
                         .font(.title2.weight(.bold)).foregroundStyle(Color.green)
                     Text("Signature and four-digit code matched at \(verification.verifiedAt.formatted(date: .omitted, time: .shortened)). This confirms the patient for this visit.")
+                }
+                Section("Consultation") {
+                    Button { consulting = true } label: {
+                        Label("Start consultation with notes", systemImage: "waveform.and.mic")
+                    }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).frame(minHeight: 48)
+                        .disabled(!canConsult)
+                    Text(consultationHint).font(.footnote).foregroundStyle(.secondary)
                 }
                 if isUsed {
                     Section {
@@ -256,11 +265,33 @@ public struct DoctorVerificationView: View {
         .navigationTitle("Verify referral")
         .onChange(of: passcode) { _, _ in lastActivity = Date() }
         .onChange(of: strokes) { _, _ in lastActivity = Date() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { resetVerification() } }
+        // While a consultation is open, the verified state underneath must survive: the cover
+        // triggers onDisappear and backgrounding is handled by the consultation itself.
+        .onChange(of: scenePhase) { _, phase in if phase != .active, !consulting { resetVerification() } }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in
             if Date().timeIntervalSince(lastActivity) > 120 { clearSecrets() }
         }
-        .onDisappear { clearSecrets(); resetVerification() }
+        .onDisappear { if !consulting { clearSecrets(); resetVerification() } }
+        .task(id: app.simulateOffline) { await refreshConsultAvailability() }
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in Task { await refreshConsultAvailability() } }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $consulting, onDismiss: { lastActivity = Date() }) {
+            if let session = app.session { ConsultationView(record: record, session: session) }
+        }
+        #else
+        .sheet(isPresented: $consulting) {
+            if let session = app.session { ConsultationView(record: record, session: session) }
+        }
+        #endif
+    }
+    private var consultationHint: String {
+        if !app.connected { return "Live translation needs connected mode. Local demo mode never contacts translation services." }
+        if !canConsult { return "Live translation needs a connection. The visit can continue without it." }
+        return "Two-way live translation (ElevenLabs) with a Gemini Live recording. The patient and you both confirm the notes before they are saved to the CRM. No audio is stored."
+    }
+    private func refreshConsultAvailability() async {
+        guard let session = app.session else { canConsult = false; return }
+        canConsult = await session.canConsult
     }
     private func clearSecrets() { passcode = ""; strokes = []; speech.stop() }
     private func resetVerification() { verification = nil; outcome = nil; error = nil; clearSecrets() }

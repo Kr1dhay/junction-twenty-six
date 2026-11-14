@@ -10,13 +10,18 @@ public actor NativeSession {
     public nonisolated let configuration: AppConfiguration
     private let appointmentAPI: (any AppointmentAPI)?
     private let voiceClient: ConsentGatedVoiceClient?
+    public nonisolated let consultationAPI: any ConsultationAPI
+    public nonisolated let consultationOutbox: ConsultationOutbox?
     private var online: Bool
     private var verifying: Set<String> = []
 
     public init(configuration: AppConfiguration, wallet: ReferralWallet, outbox: ReferralOutbox,
-                chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil, appointmentAPI: (any AppointmentAPI)? = nil) {
+                chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil,
+                consultationAPI: any ConsultationAPI = MockConsultationAPI(), consultationOutbox: ConsultationOutbox? = nil,
+                appointmentAPI: (any AppointmentAPI)? = nil) {
         self.configuration = configuration; self.wallet = wallet; self.outbox = outbox
-        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient; self.appointmentAPI = appointmentAPI
+        self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient
+        self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
         let account = "wallet-v1-" + SHA256.hash(data: Data(directory.standardizedFileURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -51,8 +56,11 @@ public actor NativeSession {
         let chain = HTTPDemoChainClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         let api = RESTReferralAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         let voice = ConsentGatedVoiceClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: issuerToken ?? bearerToken)
+        let consultations = RESTConsultationAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken)
+        let consultationOutbox = try ConsultationOutbox(storeURL: storageDirectory.appendingPathComponent("connected-consultations.enc"), key: key)
         let appointments = RESTAppointmentAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
-        return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice, appointmentAPI: appointments)
+        return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice,
+                             consultationAPI: consultations, consultationOutbox: consultationOutbox, appointmentAPI: appointments)
     }
     /// The edit session was unlocked with the patient's code and signature on this device.
     public func appointmentVerification(for authorization: ReferralEditSession) -> PatientVerification {
@@ -276,6 +284,56 @@ public actor NativeSession {
         default: return VerificationOutcome(settlement: .provisional, message: "Signature and code matched the cached commitment. This use is provisional until the shared registry confirms it. The first accepted spend wins.")
         }
     }
+    // MARK: Consultations (connected mode only; local mode never contacts a provider)
+
+    public var canConsult: Bool { configuration.allowsNetwork && online && !(consultationAPI is MockConsultationAPI) }
+    private func requireConsultation() throws {
+        guard configuration.allowsNetwork, !(consultationAPI is MockConsultationAPI) else { throw CoreError.providerUnavailable }
+        guard online else { throw CoreError.offline }
+    }
+    public func startConsultation(_ request: ConsultationSessionRequest) async throws -> ConsultationSessionCredentials {
+        try requireConsultation(); return try await consultationAPI.startSession(request)
+    }
+    public func translateConsultation(_ request: ConsultationTranslateRequest) async throws -> ConsultationTranslation {
+        try requireConsultation(); return try await consultationAPI.translate(request)
+    }
+    public func draftConsultationNotes(_ request: ConsultationNotesRequest) async throws -> ConsultationNotesDraft {
+        try requireConsultation(); return try await consultationAPI.draftNotes(request)
+    }
+    public func speakConsultation(_ request: ConsultationSpeakRequest) async throws -> ConsultationSpeech {
+        try requireConsultation(); return try await consultationAPI.speak(request)
+    }
+    public enum ConsultationSubmission: Sendable, Equatable { case saved, queued }
+    /// Durable first: the confirmed record is queued before upload, so losing the connection
+    /// after both confirmations never loses the agreed consultation.
+    public func submitConsultation(_ record: ConsultationRecord) async throws -> ConsultationSubmission {
+        guard let consultationOutbox, configuration.allowsNetwork else { throw CoreError.providerUnavailable }
+        try await consultationOutbox.enqueue(record)
+        guard online else { return .queued }
+        do {
+            try await consultationAPI.submit(record)
+            try await consultationOutbox.remove(id: record.id)
+            return .saved
+        } catch {
+            if Self.isTransportFailure(error) { return .queued }
+            throw error
+        }
+    }
+    public func pendingConsultations() async -> [ConsultationRecord] { await consultationOutbox?.pending() ?? [] }
+    private func flushConsultations() async -> (uploaded: Int, conflicts: [String]) {
+        guard let consultationOutbox, configuration.allowsNetwork, online else { return (0, []) }
+        var uploaded = 0; var conflicts: [String] = []
+        for record in await consultationOutbox.pending() {
+            do { try await consultationAPI.submit(record); try await consultationOutbox.remove(id: record.id); uploaded += 1 }
+            catch {
+                if Self.isTransportFailure(error) { break }
+                // A rejected record stays queued for clinician attention rather than being silently dropped.
+                conflicts.append("consultation:\(record.id)")
+            }
+        }
+        return (uploaded, conflicts)
+    }
+
     public func sync() async throws -> SyncReport {
         try enforceLocalAdapters()
         // Recover a crash between the wallet write and enrollment-outbox write.
@@ -292,8 +350,9 @@ public actor NativeSession {
         }
         guard online else { return SyncReport() }
         let report = try await outbox.flush(chain: chain, api: api, configuration: configuration, wallet: wallet)
+        let consultations = await flushConsultations()
         _ = try await refreshWallet()
-        return report
+        return SyncReport(uploaded: report.uploaded + consultations.uploaded, confirmedSpends: report.confirmedSpends, conflicts: report.conflicts + consultations.conflicts)
     }
     private func enforceLocalAdapters() throws {
         if configuration.demoMode {

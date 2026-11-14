@@ -1,7 +1,7 @@
 import { Pool, neonConfig, type PoolClient } from "@neondatabase/serverless";
 import WebSocket from "ws";
 import { isDeepStrictEqual } from "node:util";
-import { toCRMReferral, type ReferralRecord, type CommitmentAccount } from "@edgecare/shared-types";
+import { toCRMConsultation, toCRMReferral, type ConsultationRecord, type ReferralRecord, type CommitmentAccount } from "@edgecare/shared-types";
 import { ConflictError, MissingError } from "./repository";
 import { offeredSlots, eligibleSlot, makeAppointment, type Appointment } from "./appointments";
 import { preservesReferralIdentity } from "./referral-update";
@@ -28,7 +28,9 @@ export class PostgresRepository {
         try {
           await client.query("SELECT pg_advisory_xact_lock(1650740387, 0)");
           await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_referrals (id TEXT PRIMARY KEY, payload JSONB NOT NULL);
-            CREATE TABLE IF NOT EXISTS edgecare_demo_commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL CHECK (hash ~ '^[a-f0-9]{64}$'), spent BOOLEAN NOT NULL DEFAULT FALSE, created_slot BIGINT NOT NULL, spent_slot BIGINT, spent_at TEXT, operation_id TEXT);`);
+            CREATE TABLE IF NOT EXISTS edgecare_demo_commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL CHECK (hash ~ '^[a-f0-9]{64}$'), spent BOOLEAN NOT NULL DEFAULT FALSE, created_slot BIGINT NOT NULL, spent_slot BIGINT, spent_at TEXT, operation_id TEXT);
+            CREATE TABLE IF NOT EXISTS edgecare_demo_consultations (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, started_at TEXT NOT NULL, payload JSONB NOT NULL);
+            CREATE INDEX IF NOT EXISTS edgecare_demo_consultations_referral ON edgecare_demo_consultations (referral_id, started_at);`);
           await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_appointments (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, slot_id TEXT NOT NULL, starts_at TEXT NOT NULL, active BOOLEAN NOT NULL, payload JSONB NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS edgecare_appointments_slot_active ON edgecare_demo_appointments(slot_id) WHERE active;
             CREATE UNIQUE INDEX IF NOT EXISTS edgecare_appointments_referral_active ON edgecare_demo_appointments(referral_id) WHERE active;`);
@@ -181,5 +183,22 @@ export class PostgresRepository {
   async list() {
     await this.ready();
     return this.connection(async client => (await client.query<Row>("SELECT r.id, r.payload, c.hash, c.spent, c.spent_at FROM edgecare_demo_referrals r LEFT JOIN edgecare_demo_commitments c USING (id) ORDER BY r.payload->>'created_at' DESC, r.id")).rows.map(row => this.crm(row)));
+  }
+  /** Serialized per consultation; append-only and idempotent on consultation_id. */
+  async createConsultation(record: ConsultationRecord): Promise<{ created: boolean }> {
+    return this.mutate(`consultation:${record.consultation_id}`, async client => {
+      if (!await this.envelope(client, record.referral_id)) throw new MissingError("Referral not found");
+      const existing = (await client.query<{ payload: ConsultationRecord }>("SELECT payload FROM edgecare_demo_consultations WHERE id = $1", [record.consultation_id])).rows[0];
+      if (existing) {
+        if (!isDeepStrictEqual(existing.payload, record)) throw new ConflictError("Consultation already exists with different content");
+        return { created: false };
+      }
+      await client.query("INSERT INTO edgecare_demo_consultations (id, referral_id, started_at, payload) VALUES ($1, $2, $3, $4::jsonb)", [record.consultation_id, record.referral_id, record.started_at, JSON.stringify(record)]);
+      return { created: true };
+    });
+  }
+  async listConsultations(referralID: string) {
+    await this.ready();
+    return this.connection(async client => (await client.query<{ payload: ConsultationRecord }>("SELECT payload FROM edgecare_demo_consultations WHERE referral_id = $1 ORDER BY started_at DESC, id", [referralID])).rows.map(row => toCRMConsultation(row.payload)));
   }
 }
