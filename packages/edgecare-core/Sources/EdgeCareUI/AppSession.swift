@@ -22,9 +22,16 @@ import UIKit
     private var monitor: NWPathMonitor?
     #endif
     private let doctor: Bool
+    private let environment: [String: String]
     public init(doctor: Bool = false) {
         self.doctor = doctor
-        let mode = ProcessInfo.processInfo.environment["EDGECARE_MODE"] ?? "local"
+        let launchEnvironment = ProcessInfo.processInfo.environment
+        if doctor {
+            let saved = try? KeychainStore(service: DoctorConnectionSettings.keychainService)
+                .read(account: DoctorConnectionSettings.keychainAccount)
+            environment = DoctorConnectionSettings.resolve(environment: launchEnvironment, saved: saved)
+        } else { environment = launchEnvironment }
+        let mode = environment["EDGECARE_MODE"] ?? "local"
         connected = mode == "connected" || mode == "connected-demo"
     }
     public func start() async {
@@ -33,12 +40,21 @@ import UIKit
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("EdgeCare", isDirectory: true)
             if connected {
-                let environment = ProcessInfo.processInfo.environment
                 guard let url = URL(string: environment["EDGECARE_BASE_URL"] ?? "http://127.0.0.1:3000"), ["http", "https"].contains(url.scheme ?? "") else { throw CoreError.invalidConfiguration }
                 session = try NativeSession.connectedDemo(storageDirectory: directory, baseURL: url, bearerToken: environment["EDGECARE_CLINICIAN_TOKEN"] ?? environment["EDGECARE_API_TOKEN"], issuerToken: environment["EDGECARE_ISSUER_TOKEN"])
             } else { session = try await NativeSession.local(storageDirectory: directory, seedDemo: doctor) }
             startConnectivityObserver()
             await refresh()
+            // Provision only the doctor role, only for HTTPS origins, and never
+            // save an issuer credential. An explicit local launch still wins.
+            if doctor, connected, message == nil, let settings = DoctorConnectionSettings(environment: environment) {
+                do {
+                    try KeychainStore(service: DoctorConnectionSettings.keychainService)
+                        .save(JSONEncoder().encode(settings), account: DoctorConnectionSettings.keychainAccount)
+                } catch {
+                    message = "Connected, but the connection settings could not be saved. Launch from Xcode to reconnect next time."
+                }
+            }
         } catch { message = Copy.text("error", language) + " (\(error))" }
     }
     public func refresh() async {

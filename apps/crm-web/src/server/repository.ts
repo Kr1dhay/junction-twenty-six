@@ -9,7 +9,7 @@ import { preservesReferralIdentity } from "./referral-update";
 export class ConflictError extends Error {}
 export class MissingError extends Error {}
 
-// One durable SQLite adapter for local synthetic demos; replace behind the interfaces for deployment.
+// One durable SQLite adapter for local demos; replace behind the interfaces for deployment.
 export class DemoRepository implements ReferralRepository, ChainClient {
   private db: Database.Database;
   constructor(path: string, private now: () => Date = () => new Date()) {

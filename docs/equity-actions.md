@@ -21,7 +21,7 @@ what the gap is, where in the care pathway it opens, and what to do about it.
 - **The unmeasured stage.** Public data has no cancer-specific county figure between
   referral and treatment. The page reads this workspace's own referrals once
   (no polling) and shows open referrals, longest wait and median time to verification.
-  These are synthetic demo referrals and are labelled as such.
+  These are the workspace's referrals, not county data, and are labelled as such.
 - **How every county compares.** A ranked dot plot for any measure, with the national
   figure and, for screening, the 80% strategy target. Selecting a row briefs that county.
 - **Action plans.** Only for stages that are behind, furthest first. Each plan has an

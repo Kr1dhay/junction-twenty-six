@@ -64,7 +64,10 @@ struct PINField: View {
                     .focused($focused)
                     .foregroundStyle(.clear).tint(.clear)
                     .frame(width: 1, height: 1).opacity(0.02)
-                    .onChange(of: value) { _, new in value = String(new.filter { $0.isASCII && $0.isNumber }.prefix(4)) }
+                    .onChange(of: value) { _, new in
+                        value = String(new.filter { $0.isASCII && $0.isNumber }.prefix(4))
+                        if value.count == 4 { focused = false }
+                    }
                     .accessibilityLabel(title)
                 HStack(spacing: 12) {
                     ForEach(0..<4, id: \.self) { index in

@@ -15,6 +15,7 @@
     "check": "pnpm typecheck && pnpm test",
     "schema": "tsx scripts/generate-schema.ts",
     "pathway:snapshot": "node scripts/fetch-pathway-data.mjs",
+    "twin:snapshot": "node scripts/fetch-twin-data.mjs",
     "ios:generate": "xcodegen generate --spec project.yml",
     "test:swift": "swift test --package-path packages/edgecare-core",
     "ios:demo": "python3 scripts/run-apple-demo.py",

@@ -13,7 +13,8 @@ export function backend() {
   if (process.env.VERCEL === "1") throw new Error("Hosted demo requires DATABASE_URL");
   if (!repository) {
     repository = new DemoRepository(process.env.EDGECARE_DB_PATH ?? ".data/edgecare.sqlite");
-    for (const referral of demoReferrals) {
+    // The workspace starts empty. Fixture referrals load only for automated tests.
+    if (process.env.EDGECARE_TEST_FIXTURES === "true") for (const referral of demoReferrals) {
       repository.create(referral);
       repository.create(referral.referral_id, referral.commitment_hash);
     }

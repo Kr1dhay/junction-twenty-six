@@ -58,7 +58,7 @@ export function accessGuard(request: Request, role: "clinician" | "issuer"): Res
   const configured = role === "clinician" ? process.env.EDGECARE_CLINICIAN_TOKEN : process.env.EDGECARE_ISSUER_TOKEN;
   const bearer = request.headers.get("authorization");
   if (configured && bearer && equal(bearer, `Bearer ${configured}`)) return;
-  // Explicit synthetic-only local adapter. Browsers receive a demo workspace session.
+  // Explicit demo-only local adapter. Browsers receive a demo workspace session.
   const loopback = isLoopback(request);
   const native = !request.headers.has("sec-fetch-site") && !request.headers.has("origin");
   if (!configured && loopback && native) return;

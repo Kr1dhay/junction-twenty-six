@@ -152,7 +152,7 @@ function WorkspaceTiming() {
     const controller = new AbortController();
     fetch("/referrals", { cache: "no-store", signal: controller.signal })
       .then(response => response.ok ? response.json() as Promise<{ referrals: CRMReferral[] }> : undefined)
-      .then(result => { if (result) setSummary(waitingSummary(result.referrals, Date.now())); })
+      .then(result => { if (result?.referrals.length) setSummary(waitingSummary(result.referrals, Date.now())); })
       .catch(() => undefined);
     return () => controller.abort();
   }, []);
@@ -165,7 +165,7 @@ function WorkspaceTiming() {
       <div><dt>Open over {reviewAfterDays} days</dt><dd>{summary.overdue}</dd></div>
       <div><dt>Median time to verification</dt><dd>{summary.medianToVerified === null ? "–" : formatWait(summary.medianToVerified)}</dd></div>
     </dl>
-    <small>Synthetic demo referrals, not county data. <a href="/">Open the referral list</a></small>
+    <small>This workspace’s referrals, not county data. <a href="/">Open the referral list</a></small>
   </aside>;
 }
 
