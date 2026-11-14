@@ -122,10 +122,16 @@ public actor ReferralOutbox {
                 // previously and lost its HTTP response. The registry recognizes its operation ID.
                 try await chain.spend(referralID: spend.referralID, hash: spend.commitmentHash, operationID: spend.operationID)
             } catch CoreError.notFound {
-                try await wallet?.beginDeletion(id: spend.referralID)
-                try await wallet?.remove(id: spend.referralID)
-                try discard(referralID: spend.referralID)
-                continue
+                // A missing commitment alone does not prove the patient's profile was
+                // deleted. Confirm that the enrollment is absent before clearing data.
+                do { _ = try await api.fetchVerificationEnvelope(id: spend.referralID) }
+                catch CoreError.notFound {
+                    try await wallet?.beginDeletion(id: spend.referralID)
+                    try await wallet?.remove(id: spend.referralID)
+                    try discard(referralID: spend.referralID)
+                    continue
+                }
+                throw CoreError.notFound
             } catch CoreError.alreadySpent { conflict = true }
               catch CoreError.conflict { conflict = true }
             guard state.discarded?.contains(spend.referralID) != true else { continue }

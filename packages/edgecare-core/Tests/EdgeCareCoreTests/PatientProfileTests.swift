@@ -110,6 +110,18 @@ import XCTest
         XCTAssertEqual(entries.map(\.id), [other.id]); XCTAssertTrue(queued.isEmpty)
         let uploaded = try await api.fetchVerificationEnvelope(id: other.id); XCTAssertEqual(uploaded.id, other.id)
     }
+    func testMissingCommitmentAloneDoesNotEraseThePatientProfileOrQueuedSpend() async throws {
+        let own = try record(), app = try session(folder(), api: MockReferralAPI(records: [try record(code: "9876")]))
+        try await app.api.submit(own)
+        try await app.wallet.store(own)
+        try await app.outbox.enqueueSpend(PendingSpend(referralID: own.id, commitmentHash: own.commitmentHash))
+        do { _ = try await app.sync(); XCTFail("A missing commitment requires reconciliation") }
+        catch { XCTAssertEqual(error as? CoreError, .notFound) }
+        let entry = await app.wallet.entry(id: own.id), spends = await app.outbox.pendingSpends()
+        XCTAssertNotNil(entry); XCTAssertEqual(spends.map(\.referralID), [own.id])
+        let deletion = await app.wallet.deletionRequested(id: own.id); XCTAssertFalse(deletion)
+    }
+
     func testCrashAfterDeletionIntentDoesNotReplayAnEnrollmentOnRestart() async throws {
         let own = try record(), path = try folder(), api = MockReferralAPI()
         let app = try session(path, api: api)
