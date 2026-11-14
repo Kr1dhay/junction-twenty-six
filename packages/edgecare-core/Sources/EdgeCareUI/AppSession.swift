@@ -25,7 +25,8 @@ import UIKit
     private let environment: [String: String]
     public init(doctor: Bool = false) {
         self.doctor = doctor
-        let launchEnvironment = ProcessInfo.processInfo.environment
+        let launchEnvironment = BundledConnection.resolve(environment: ProcessInfo.processInfo.environment,
+                                                          info: Bundle.main.infoDictionary)
         if doctor {
             let saved = try? KeychainStore(service: DoctorConnectionSettings.keychainService)
                 .read(account: DoctorConnectionSettings.keychainAccount)

@@ -58,7 +58,7 @@ import XCTest
         XCTAssertEqual(entries.map(\.id), [other.id]); XCTAssertEqual(queue.map(\.id), [other.id]); XCTAssertTrue(spends.isEmpty)
         let consultations = await app.pendingConsultations(), account = try await app.chain.read(referralID: own.id)
         XCTAssertTrue(consultations.isEmpty); XCTAssertNil(account)
-        let remote = await api.list(); XCTAssertEqual(remote.map(\.id), [other.id])
+        let remote = try await api.list(); XCTAssertEqual(remote.map(\.id), [other.id])
         let reopened = try session(path, api: api)
         _ = try await reopened.sync()
         let persisted = await reopened.walletEntries(); XCTAssertEqual(persisted.map(\.id), [other.id])
@@ -130,7 +130,7 @@ import XCTest
         try await app.wallet.beginDeletion(id: own.id) // Simulate termination before outbox cleanup.
         let reopened = try session(path, api: api)
         _ = try await reopened.sync()
-        let uploaded = await api.list(), queued = await reopened.outbox.pending()
+        let uploaded = try await api.list(), queued = await reopened.outbox.pending()
         XCTAssertTrue(uploaded.isEmpty); XCTAssertTrue(queued.isEmpty)
     }
 
@@ -151,7 +151,7 @@ private actor DeletionTestAPI: ReferralAPI {
     init(records: [ReferralRecord]) { backing = MockReferralAPI(records: records) }
     func setFail(_ value: Bool) { fail = value }
     func submit(_ record: ReferralRecord) async throws { try await backing.submit(record) }
-    func list() async throws -> [ReferralRecord] { await backing.list() }
+    func list() async throws -> [ReferralRecord] { try await backing.list() }
     func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord { try await backing.fetchVerificationEnvelope(id: id) }
     func deleteProfile(_ access: PatientProfileAccess) async throws {
         deleteCalls += 1

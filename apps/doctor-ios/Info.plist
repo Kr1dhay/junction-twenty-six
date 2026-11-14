@@ -18,6 +18,14 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>EDGECARE_BASE_URL</key>
+	<string>$(EDGECARE_BASE_URL)</string>
+	<key>EDGECARE_CLINICIAN_TOKEN</key>
+	<string>$(EDGECARE_CLINICIAN_TOKEN)</string>
+	<key>EDGECARE_ISSUER_TOKEN</key>
+	<string>$(EDGECARE_ISSUER_TOKEN)</string>
+	<key>EDGECARE_MODE</key>
+	<string>$(EDGECARE_MODE)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
