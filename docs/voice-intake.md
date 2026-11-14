@@ -23,6 +23,8 @@ ELEVENLABS_TTS_MODEL=eleven_v3
 
 Select a Gemini model available to your account that supports `generateContent` with JSON Schema output. Restart the Next.js server after configuration changes. Provider keys never belong in a native app, browser environment variable or committed file. Launch the native apps in connected mode with the [Mac launcher](apple-demo.md).
 
+The hosted deployment uses Gemini through Runware instead of a direct Google key: `VOICE_LLM_PROVIDER=runware`, `RUNWARE_API_KEY` and `RUNWARE_MODEL=google:gemini@3-flash`. The verified Flash model returns structured intake profiles through Runware's [compatible API](https://runware.ai/docs/tools/compatible-apis). The Pro model produced prose alongside JSON in a live test, so it was not selected. The service validates every result and never silently switches models. Language-specific ElevenLabs voices and their verification evidence are listed in [voice selection](voice-selection.md).
+
 The user first gives explicit consent to external processing. Each recording is limited to 30 seconds. Tap the recording control again to send a turn, then hear the reply and continue. Typed conversational turns use the same profile and conversation without speech recognition. Corrections update the current profile before referral enrollment.
 
 ## Language behavior

@@ -23,3 +23,5 @@ __pycache__/
 playwright-report/
 test-results/
 demo/remotion/public/voiceover.mp3
+
+.vercel/

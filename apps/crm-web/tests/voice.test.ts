@@ -82,3 +82,48 @@ test("voice route validates consent and returns unavailable with no configured l
   assert.equal((await POST(request({ text: "hello", consent: false }))).status, 400);
   assert.equal((await POST(request({ text: "hello", consent: true }))).status, 503);
 });
+
+const runwareConfig: VoiceConfig = { ...config, provider: "runware", runwareKey: "runware-test-secret", runwareModel: "google:gemini@3.1-pro", geminiKey: undefined, geminiModel: undefined };
+const runwareResponse = (value: unknown = generated("fi"), finish_reason = "stop") => Response.json({ choices: [{ finish_reason, message: { content: JSON.stringify(value), refusal: null } }] });
+
+test("Runware uses the configured Gemini text model and structured schema with server-side credentials", async () => {
+  const result = await runVoiceTurn({ consent: true, text: "Ihossa on muutos", profile, history: audio.history }, runwareConfig, async (url, init) => {
+    assert.equal(String(url), "https://api.runware.ai/v1/chat/completions");
+    assert.equal((init!.headers as Record<string, string>).Authorization, "Bearer runware-test-secret");
+    assert.equal(init!.cache, "no-store");
+    const body = JSON.parse(init!.body as string);
+    assert.equal(body.model, "google:gemini@3.1-pro");
+    assert.equal(body.response_format.type, "json_schema");
+    assert.equal(body.response_format.json_schema.strict, true);
+    assert.equal(body.response_format.json_schema.schema.additionalProperties, false);
+    assert.equal(body.response_format.json_schema.schema.properties.profile.additionalProperties, false);
+    assert.match(body.messages[0].content, /ALWAYS contain English/);
+    assert.deepEqual(JSON.parse(body.messages[1].content).previous_profile, profile);
+    assert.deepEqual(JSON.parse(body.messages[1].content).conversation_history, audio.history);
+    return runwareResponse();
+  }, undefined, false);
+  assert.equal(result.detected_language, "fi");
+  assert.deepEqual(result.profile, profile);
+  assert.equal(JSON.stringify(result).includes("secret"), false);
+});
+
+test("Runware rejects missing credentials, non-Gemini models and auto routing without fallback", async () => {
+  const forbiddenFetch: typeof fetch = async () => { throw new Error("Must not contact network"); };
+  for (const overrides of [{ runwareKey: undefined }, { runwareModel: undefined }, { runwareModel: "auto" }, { runwareModel: "google:4@1" }, { runwareModel: "openai:gpt@5.5" }]) {
+    await assert.rejects(runVoiceTurn({ consent: true, text: "hello" }, { ...runwareConfig, ...overrides, geminiKey: "available-direct-key" }, forbiddenFetch), error => error instanceof VoiceError && error.status === 503);
+  }
+});
+
+test("Runware errors, refusals, truncated output and invalid profiles cannot fabricate a turn", async () => {
+  for (const response of [new Response("provider-secret", { status: 403 }), runwareResponse(generated(), "length"), Response.json({ choices: [{ finish_reason: "stop", message: { content: null, refusal: "refused" } }] }), runwareResponse({ ...generated(), profile: { ...profile, patient_name: "Forbidden" } }), Response.json({ data: [{ text: "not a chat completion" }] })]) {
+    let count = 0;
+    await assert.rejects(runVoiceTurn({ consent: true, text: "hello", profile }, runwareConfig, async () => { count++; return response; }, undefined, false), error => error instanceof VoiceError && !error.message.includes("secret"));
+    assert.equal(count, 1);
+  }
+});
+
+test("Runware preserves externally detected speech language validation", async () => {
+  let count = 0;
+  await assert.rejects(runVoiceTurn(audio, runwareConfig, async () => ++count === 1 ? Response.json({ text: "Somali input", language_code: "so", language_probability: 0.99 }) : runwareResponse(generated("en"))), /did not match/);
+  assert.equal(count, 2);
+});

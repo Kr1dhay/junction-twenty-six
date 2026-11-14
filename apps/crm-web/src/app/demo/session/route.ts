@@ -5,7 +5,7 @@ export async function POST(request: Request) {
   const guard = demoGuard(); if (guard) return guard;
   const access = sessionAccessGuard(request); if (access) return access;
   const response = json({ role: "demo_clinician", synthetic_only: true });
-  response.headers.set("Set-Cookie", `edgecare_demo_session=${createSession()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${new URL(request.url).protocol === "https:" ? "; Secure" : ""}`);
+  response.headers.set("Set-Cookie", `edgecare_demo_session=${createSession()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${process.env.EDGECARE_PUBLIC_ORIGIN || new URL(request.url).protocol === "https:" ? "; Secure" : ""}`);
   return response;
 }
 export async function DELETE(request: Request) {

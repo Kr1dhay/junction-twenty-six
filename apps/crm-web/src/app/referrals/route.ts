@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
-  return json({ referrals: backend().list() });
+  return json({ referrals: await backend().list() });
 }
 export async function POST(request: Request) {
   const guard = demoGuard() ?? accessGuard(request, "issuer"); if (guard) return guard;
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   const parsed = referralSchema.safeParse(body);
   if (!parsed.success || parsed.data.status !== "open") return json({ error: "Invalid enrollment record" }, 400);
   try {
-    const result = backend().create(parsed.data);
+    const result = await backend().create(parsed.data);
     return json({ referral_id: parsed.data.referral_id }, result.created ? 201 : 200);
   } catch (error) {
     if (error instanceof ConflictError) return json({ error: error.message }, 409);

@@ -10,7 +10,7 @@ export async function GET(request: Request, context: Context) {
   const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
   const { id } = await context.params;
   if (!canonicalID(id)) return json({ error: "Invalid referral ID" }, 400);
-  const account = backend().read(id);
+  const account = await backend().read(id);
   return account ? json(account) : json({ error: "Commitment not found" }, 404);
 }
 export async function PUT(request: Request, context: Context) {
@@ -23,8 +23,8 @@ export async function PUT(request: Request, context: Context) {
   if (!parsed.success) return json({ error: "Only a lowercase SHA-256 commitment_hash is accepted" }, 400);
   try {
     const store = backend();
-    store.create(id, parsed.data.commitment_hash);
-    return json(store.read(id));
+    await store.create(id, parsed.data.commitment_hash);
+    return json(await store.read(id));
   } catch (error) {
     if (error instanceof ConflictError) return json({ error: error.message }, 409);
     throw error;

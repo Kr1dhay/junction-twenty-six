@@ -15,8 +15,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!parsed.success) return json({ error: "Only a lowercase SHA-256 commitment_hash is accepted" }, 400);
   try {
     const store = backend();
-    store.spend(id, parsed.data.commitment_hash, parsed.data.operation_id);
-    return json(store.read(id));
+    await store.spend(id, parsed.data.commitment_hash, parsed.data.operation_id);
+    return json(await store.read(id));
   } catch (error) {
     if (error instanceof MissingError) return json({ error: error.message }, 404);
     if (error instanceof ConflictError) return json({ error: error.message }, 409);

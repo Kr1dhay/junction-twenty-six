@@ -2,7 +2,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { json } from "./http";
 
 const state = globalThis as typeof globalThis & { edgecareSessionSecret?: string };
-const secret = () => state.edgecareSessionSecret ??= randomBytes(32).toString("hex");
+const secret = () => {
+  const configured = process.env.EDGECARE_SESSION_SECRET;
+  if (configured && configured.length >= 32) return configured;
+  if (process.env.VERCEL) throw new Error("Hosted sessions require EDGECARE_SESSION_SECRET (at least 32 characters)");
+  return state.edgecareSessionSecret ??= randomBytes(32).toString("hex");
+};
 const signature = (payload: string) => createHmac("sha256", secret()).update(payload).digest("hex");
 const equal = (a: string, b: string) => {
   const first = Buffer.from(a); const second = Buffer.from(b);
@@ -11,11 +16,21 @@ const equal = (a: string, b: string) => {
 function externalURL(request: Request): URL | undefined {
   const internal = new URL(request.url);
   const host = request.headers.get("host");
+  const configuredOrigin = process.env.EDGECARE_PUBLIC_ORIGIN;
+  if (configuredOrigin) {
+    try {
+      const configured = new URL(configuredOrigin);
+      // Trust deployment configuration, never caller-supplied forwarded headers.
+      if (configured.protocol !== "https:" || (host ?? internal.host) !== configured.host) return;
+      return configured;
+    } catch { return; }
+  }
   if (!host) return internal;
   if (!/^(?:[A-Za-z0-9.-]+|\[[A-Fa-f0-9:]+\])(?::[0-9]{1,5})?$/.test(host)) return;
   try { return new URL(`${internal.protocol}//${host}`); } catch { return; }
 }
 export const isLoopback = (request: Request) => {
+  if (process.env.VERCEL || process.env.EDGECARE_PUBLIC_ORIGIN) return false;
   const url = externalURL(request);
   return Boolean(url && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
 };

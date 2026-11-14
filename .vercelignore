@@ -1,0 +1,13 @@
+.git
+.env*
+**/.env*
+artifacts
+**/.data
+**/.next
+**/node_modules
+**/.build
+**/DerivedData
+**/*.xcodeproj
+**/*.xcworkspace
+test-results
+playwright-report

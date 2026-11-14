@@ -7,7 +7,7 @@ Four applications for an anonymous cancer-care demonstration, in one monorepo. T
 | `apps/kiosk-ios` | SwiftUI iPad intake: structured form, conversational voice, evidence capture and enrollment |
 | `apps/patient-ios` | Shared intake on iPhone, encrypted wallet and referral-ID handoff |
 | `apps/doctor-ios` | Referral selection, cached verification, signature/PIN checks and spend reconciliation |
-| `apps/crm-web` | Next.js clinician workspace, filters, details, polling, REST API and SQLite |
+| `apps/crm-web` | Next.js clinician workspace, REST API, local SQLite and hosted Neon Postgres |
 
 `packages/edgecare-core` contains shared Swift models, cryptography, signature matching, intake, persistence and sync; `packages/shared-types` contains TypeScript validation, projections and fixtures. [API.md](API.md) documents the shared contract. Design references are in [docs/design](docs/design).
 
@@ -41,7 +41,7 @@ Connected mode shares the local backend across devices. `--mode local` makes no 
 
 Patients can complete a structured form offline or have a turn-by-turn voice conversation online. Voice uses ElevenLabs speech recognition with automatic language detection, a server-side conversational assistant that updates an English clinical profile, and ElevenLabs speech in the detected language. The configured multilingual voice can be overridden per language. The five demo languages are English, Finnish, Somali, Arabic and Russian.
 
-Voice requires explicit consent, connectivity and server-side ElevenLabs/Gemini credentials. The form remains available without those services. The clinical profile and clinician summary use English; localized replies and patient guidance are separate. No patient voice cloning is performed. See the server `.env.example` and [voice setup](docs/voice-intake.md).
+Voice requires explicit consent, connectivity and server-side ElevenLabs plus Gemini credentials (directly or through Runware). The form remains available without those services. The clinical profile and clinician summary use English; localized replies and patient guidance are separate. No patient voice cloning is performed. See [hosted deployment and Mac connection](docs/deployment.md), the server `.env.example` and [voice setup](docs/voice-intake.md).
 
 ## Checks and additional tools
 

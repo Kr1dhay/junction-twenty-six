@@ -7,6 +7,9 @@ export class VoiceError extends Error {
 }
 export interface VoiceConfig {
   enabled: boolean;
+  provider?: "gemini" | "runware";
+  runwareKey?: string;
+  runwareModel?: string;
   geminiKey?: string;
   geminiModel?: string;
   elevenKey?: string;
@@ -17,8 +20,13 @@ export interface VoiceConfig {
   voices?: Record<string, string>;
 }
 export function voiceConfig(): VoiceConfig {
+  const provider = process.env.VOICE_LLM_PROVIDER ?? "gemini";
+  if (provider !== "gemini" && provider !== "runware") throw new VoiceError("VOICE_LLM_PROVIDER must be gemini or runware.", 503);
   return {
     enabled: process.env.EDGECARE_CLOUD_VOICE === "true",
+    provider,
+    runwareKey: process.env.RUNWARE_API_KEY,
+    runwareModel: process.env.RUNWARE_MODEL,
     geminiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL,
     elevenKey: process.env.ELEVENLABS_API_KEY,
@@ -34,6 +42,9 @@ const profileJSON = {
   properties: { concern_english: { type: "string" }, symptoms_english: { type: "array", items: { type: "string" } }, duration_english: { type: "string" }, additional_context_english: { type: "string" } },
   required: ["concern_english", "symptoms_english", "duration_english", "additional_context_english"],
 };
+const turnJSON = { type: "object", additionalProperties: false, properties: { detected_language: { type: "string" }, reply: { type: "string" }, profile: profileJSON }, required: ["detected_language", "reply", "profile"] };
+// Explicitly supported Gemini models used for text intake; never route to an image model or auto-router.
+const runwareGeminiModels = new Set(["google:gemini@3.1-pro", "google:gemini@3-flash", "google:gemini@3.1-flash-lite"]);
 const turnSchema = z.object({ detected_language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/), reply: z.string().trim().min(1).max(2000), profile: clinicalProfileSchema }).strict();
 const aliases: Record<string, string> = { eng: "en", fin: "fi", som: "so", ara: "ar", rus: "ru", kur: "ku", fra: "fr", deu: "de", spa: "es", swe: "sv", fas: "fa", zho: "zh", jpn: "ja", kor: "ko" };
 const normalizeLanguage = (value: string) => aliases[value.toLowerCase()] ?? value.toLowerCase();
@@ -51,7 +62,10 @@ const systemPrompt = `You are Edge-Care, an anonymous multilingual intake assist
 export async function runVoiceTurn(input: VoiceTurnRequest, config = voiceConfig(), fetcher: typeof fetch = fetch, signal?: AbortSignal, synthesize = true): Promise<VoiceTurnResponse> {
   if (input.consent !== true) throw new VoiceError("Explicit cloud-processing consent is required.", 400);
   if (!config.enabled) throw new VoiceError("Cloud conversation is disabled. Continue with the offline structured form.", 503);
-  if (!config.geminiKey || !config.geminiModel) throw new VoiceError("Gemini conversation is not configured. Continue with the offline structured form.", 503);
+  const runware = config.provider === "runware";
+  if (runware && (!config.runwareKey || !config.runwareModel)) throw new VoiceError("Runware Gemini conversation is not configured. Continue with the offline structured form.", 503);
+  if (runware && !runwareGeminiModels.has(config.runwareModel!)) throw new VoiceError("RUNWARE_MODEL must be a supported Gemini text model: google:gemini@3.1-pro, google:gemini@3-flash, or google:gemini@3.1-flash-lite.", 503);
+  if (!runware && (!config.geminiKey || !config.geminiModel)) throw new VoiceError("Gemini conversation is not configured. Continue with the offline structured form.", 503);
   const request = async (url: string, init: RequestInit) => {
     try { return await fetcher(url, { ...init, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000), cache: "no-store" }); }
     catch { throw new VoiceError("The cloud provider could not be reached. Your turn was not saved on this server.", 503); }
@@ -75,19 +89,30 @@ export async function runVoiceTurn(input: VoiceTurnRequest, config = voiceConfig
     transcript = result.data.text;
     detected = normalizeLanguage(result.data.language_code);
   }
-  const conversation = await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel)}:generateContent`, {
-    method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiKey },
+  const patientContext = JSON.stringify({ transcript, detected_language: detected ?? null, preferred_language: input.language ?? null, previous_profile: input.profile ?? null, conversation_history: input.history ?? [] });
+  // Runware documents OpenAI-compatible Chat Completions with AIR model IDs.
+  // https://runware.ai/docs/tools/compatible-apis
+  const conversation = runware ? await request("https://api.runware.ai/v1/chat/completions", {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.runwareKey}` },
+    body: JSON.stringify({ model: config.runwareModel, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: patientContext }], response_format: { type: "json_schema", json_schema: { name: "intake_turn", strict: true, schema: turnJSON } }, temperature: 0.2, max_tokens: 4096 }),
+  }) : await request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel!)}:generateContent`, {
+    method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": config.geminiKey! },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: JSON.stringify({ transcript, detected_language: detected ?? null, preferred_language: input.language ?? null, previous_profile: input.profile ?? null, conversation_history: input.history ?? [] }) }] }],
-      generationConfig: { responseMimeType: "application/json", responseJsonSchema: { type: "object", additionalProperties: false, properties: { detected_language: { type: "string" }, reply: { type: "string" }, profile: profileJSON }, required: ["detected_language", "reply", "profile"] }, temperature: 0.2 },
+      contents: [{ role: "user", parts: [{ text: patientContext }] }],
+      generationConfig: { responseMimeType: "application/json", responseJsonSchema: turnJSON, temperature: 0.2 },
     }),
   });
-  if (!conversation.ok) throw new VoiceError("Gemini could not complete this turn. Check provider configuration or continue offline.");
+  if (!conversation.ok) throw new VoiceError(`${runware ? "Runware Gemini" : "Gemini"} could not complete this turn. Check provider configuration or continue offline.`);
   let generated: z.infer<typeof turnSchema>;
   try {
-    const response = z.object({ candidates: z.array(z.object({ content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
-    generated = turnSchema.parse(JSON.parse(response.candidates[0]!.content.parts.map(part => part.text ?? "").join("")));
+    if (runware) {
+      const response = z.object({ choices: z.array(z.object({ finish_reason: z.literal("stop"), message: z.object({ content: z.string().min(1), refusal: z.null().optional() }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
+      generated = turnSchema.parse(JSON.parse(response.choices[0]!.message.content));
+    } else {
+      const response = z.object({ candidates: z.array(z.object({ content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }) })).min(1) }).parse(await readJSON(conversation, 256 * 1024));
+      generated = turnSchema.parse(JSON.parse(response.candidates[0]!.content.parts.map(part => part.text ?? "").join("")));
+    }
   } catch { throw new VoiceError("The conversation provider returned an invalid profile. Your previous profile was preserved."); }
   if (detected && normalizeLanguage(generated.detected_language) !== detected) throw new VoiceError("The response language did not match the detected speech. Please retry.");
   const language = detected ?? normalizeLanguage(generated.detected_language);

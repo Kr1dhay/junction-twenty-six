@@ -7,6 +7,6 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
   const { id } = await context.params;
   if (!canonicalID(id)) return json({ error: "Invalid referral ID" }, 400);
-  const record = backend().verificationEnvelope(id);
+  const record = await backend().verificationEnvelope(id);
   return record ? json(record) : json({ error: "Referral not found" }, 404);
 }

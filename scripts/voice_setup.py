@@ -9,7 +9,8 @@ import tempfile
 
 REQUIRED = ("GEMINI_API_KEY", "GEMINI_MODEL", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID")
 DEVICE_KEYS = ("EDGECARE_ISSUER_TOKEN", "EDGECARE_CLINICIAN_TOKEN")
-KEYS = REQUIRED + DEVICE_KEYS + ("EDGECARE_CLOUD_VOICE",)
+RUNWARE_REQUIRED = ("RUNWARE_API_KEY", "RUNWARE_MODEL", "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID")
+KEYS = REQUIRED + RUNWARE_REQUIRED + DEVICE_KEYS + ("EDGECARE_CLOUD_VOICE", "VOICE_LLM_PROVIDER")
 
 
 def load_settings(root):
@@ -58,10 +59,11 @@ def configure(root, prompt=None):
     current = load_settings(root)
     values = {}
     print("Configure this Mac's backend. Input is hidden; Enter keeps an existing value.")
-    for key in REQUIRED:
+    required = RUNWARE_REQUIRED if current.get("VOICE_LLM_PROVIDER") == "runware" else REQUIRED
+    for key in required:
         value = prompt(key + (" [configured]: " if current.get(key) else " [required]: ")).strip()
         values[key] = value or current.get(key, "")
-    missing = [key for key in REQUIRED if not values[key]]
+    missing = [key for key in required if not values[key]]
     if missing:
         raise ValueError("Voice configuration incomplete; no file written. Missing: " + ", ".join(missing))
     values.update(EDGECARE_CLOUD_VOICE="true", DEMO_MODE="true", CHAIN="mock", LLM="ondevice")
@@ -76,7 +78,7 @@ def configure(root, prompt=None):
 def simulator_environment(mode, base_url, settings):
     # Do not forward provider keys or inherited SIMCTL_CHILD_* secrets to apps.
     environment = {key: value for key, value in os.environ.items()
-                   if not key.startswith("SIMCTL_CHILD_") and key not in REQUIRED}
+                   if not key.startswith("SIMCTL_CHILD_") and key not in REQUIRED + RUNWARE_REQUIRED}
     environment.update(SIMCTL_CHILD_EDGECARE_MODE=mode, SIMCTL_CHILD_EDGECARE_BASE_URL=base_url)
     if mode == "connected":
         for key in DEVICE_KEYS:
