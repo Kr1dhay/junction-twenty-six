@@ -25,3 +25,8 @@ test-results/
 demo/remotion/public/voiceover.mp3
 
 .vercel/
+.venv/
+services/voice-research/models/*
+!services/voice-research/models/paterson-mfcc-lr.json
+!services/voice-research/models/manifest.json
+!services/voice-research/models/README.md
