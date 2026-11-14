@@ -25,6 +25,11 @@ import EdgeCareCore
     public var requiresEmergencyAdvice: Bool { safety.requiresEmergencyHelp || guidance?.requiresEmergencyHelp == true }
     public var letterText = ""
     public var lesionPresent = false
+    /// Downscaled skin photo, held in memory only until the session resets.
+    public var lesionImage: Data?
+    public var photoConsent = false
+    public var skinAssessment: SkinAssessmentResult?
+    public var skinAssessmentUnavailable = false
     public var voiceResearch: VoiceResearchAssessment?
     public var voiceResearchDecision: String?
     public var shouldOfferVoiceResearch: Bool {
@@ -141,13 +146,26 @@ import EdgeCareCore
             symptoms: result.symptoms, clinicianSummary: result.clinicianSummary + " " + continuation,
             label: result.label, requiresEmergencyHelp: result.requiresEmergencyHelp, sources: result.sources)
     }
-    public func continueFlow() async {
+    public func continueFlow(using session: NativeSession? = nil) async {
         guard !safety.plan.isEmpty, safety.isComplete else { error = Copy.text("error", language); return }
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
-        let structured = "\(clinicalProfile.clinicianSummary)\n\(concern)\n[urgent_now=\(urgent ?? "unsure")]\n[persistent_or_changing=\(persistent ?? "unsure")]" + (letterText.isEmpty ? "" : "\nScreening letter: \(letterText)") + (lesionPresent ? "\nSkin concern photo noted; no image model assessment." : "")
+        let structured = "\(clinicalProfile.clinicianSummary)\n\(concern)\n[urgent_now=\(urgent ?? "unsure")]\n[persistent_or_changing=\(persistent ?? "unsure")]" + (letterText.isEmpty ? "" : "\nScreening letter: \(letterText)") + (lesionPresent ? "\nSkin concern photo added." : "")
         do {
-            let result = try await triage.guidance(for: structured, language: language)
+            var result = try await triage.guidance(for: structured, language: language)
+            guard generation == currentGeneration else { return }
+            skinAssessment = nil; skinAssessmentUnavailable = false
+            // Photo -> CNN -> Gemini runs only with explicit consent and a connected session. Local guidance
+            // (including emergency advice) is computed first and always kept if the assessment fails.
+            if lesionPresent, photoConsent, let image = lesionImage, let session {
+                do {
+                    let assessment = try await session.assessSkin(SkinAssessmentRequest(consent: true, language: language, image: image,
+                        profile: clinicalProfile, answers: referralAnswers, concern: concern))
+                    guard generation == currentGeneration else { return }
+                    skinAssessment = assessment
+                    result = assessment.merged(into: result, language: language)
+                } catch { skinAssessmentUnavailable = true }
+            } else if lesionPresent, lesionImage != nil { skinAssessmentUnavailable = true }
             guard generation == currentGeneration else { return }
             guidance = annotated(result); pendingUpdate = nil; step = 5
         }
@@ -161,7 +179,7 @@ import EdgeCareCore
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
         do {
-            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile, voiceResearch: voiceResearch)
+            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile, lesionAssessment: skinAssessment?.clinicianSummary, voiceResearch: voiceResearch)
             let sealed: ReferralRecord
             if let editingReferral {
                 if pendingUpdate == nil { pendingUpdate = try EnrollmentService().prepareUpdate(session: editingReferral, draft: draft) }
@@ -189,6 +207,7 @@ import EdgeCareCore
         editingReferral = nil; pendingUpdate = nil; didUpdateReferral = false; appointmentVerification = nil
         inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false; voiceIntakeComplete = false
         concern = ""; guidance = nil; step = 0; safety.reset(plan: []); safetyInput = nil; emergencyAdvicePending = false; continuedAfterEmergencyAdvice = false; letterText = ""; lesionPresent = false
+        lesionImage = nil; photoConsent = false; skinAssessment = nil; skinAssessmentUnavailable = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
         invalidateVoiceResearch()
         language = "en"; languageChosen = false; languageDetected = false; lastActivity = Date()
@@ -393,11 +412,18 @@ private struct IntakeLayoutView: View {
         case 4:
             heading(t("evidence"))
             if model.shouldOfferVoiceResearch, model.voiceResearch == nil, model.voiceResearchDecision != "declined" { voiceResearchEntry }
-            EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent)
-            primary(t("next")) { Task { await model.continueFlow() } }.disabled(model.busy)
+            EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent,
+                            lesionImage: $model.lesionImage, photoConsent: $model.photoConsent)
+            if model.busy && model.photoConsent && model.lesionImage != nil { ProgressView(t("analysingPhoto")) }
+            primary(t("next")) { Task { await model.continueFlow(using: app.session) } }.disabled(model.busy)
         case 5:
             guideHeading(t("guidance"), pose: .nextStep)
             if let guidance = model.guidance {
+                if let assessment = model.skinAssessment, !guidance.requiresEmergencyHelp {
+                    RiskScoreCard(assessment: assessment, language: model.language, compact: compact)
+                } else if model.skinAssessmentUnavailable {
+                    Label(t("skinScoreUnavailable"), systemImage: "wifi.exclamationmark").font(.subheadline).foregroundStyle(.secondary)
+                }
                 Text(guidance.message).font(compact ? .body : .title3)
                 if let result = model.voiceResearch { VoiceResearchResultView(result: result, language: model.language) }
                 if !kiosk { Text(t("review")).font(.subheadline).foregroundStyle(.secondary) }
@@ -409,6 +435,10 @@ private struct IntakeLayoutView: View {
                     } else {
                         emergencyNotice
                         Text(t("emergencyContinueExplanation"))
+                    }
+                    // Emergency advice stays first; the photo score follows it.
+                    if let assessment = model.skinAssessment {
+                        RiskScoreCard(assessment: assessment, language: model.language, compact: compact)
                     }
                     primary(t("continueReferral")) { model.proceedToReferral() }
                 } else { primary(t(model.isUpdatingReferral ? "reviewUpdate" : "seal")) { model.proceedToReferral() } }

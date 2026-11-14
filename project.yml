@@ -23,7 +23,7 @@ targetTemplates:
     info:
       path: apps/Info.plist
       properties:
-        NSCameraUsageDescription: Read a letter or add a skin concern on this device. Photos are not uploaded.
+        NSCameraUsageDescription: Read a letter on this device, or add a skin concern photo. With your consent, a skin photo is sent to the Edge-Care server and Google Gemini for a demo risk estimate and is not stored.
         NSMicrophoneUsageDescription: With consent, voice intake streams audio to Google Gemini; translated doctor consultations use ElevenLabs and Google Gemini. Consultation audio is not stored. You can use the form offline.
         NSSpeechRecognitionUsageDescription: Optional form dictation uses Apple on-device recognition. Online conversation is a separate consent-based service.
         NSLocalNetworkUsageDescription: Connect to the shared Edge-Care demo backend on your local network.
