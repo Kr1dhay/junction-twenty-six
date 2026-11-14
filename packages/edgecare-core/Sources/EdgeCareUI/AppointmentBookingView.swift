@@ -24,7 +24,10 @@ import EdgeCareCore
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(t("bookAppointment")).font(.largeTitle.weight(.semibold))
+            HStack(spacing: 16) {
+                EdiView(pose: .nextStep).frame(width: 64, height: 66)
+                Text(t("bookAppointment")).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+            }
             Text(t("demoBookingNotice")).foregroundStyle(.secondary)
             if !app.connected {
                 Text(t("bookingConnectionRequired"))
@@ -32,15 +35,15 @@ import EdgeCareCore
                 Text(t("verifyToBook"))
                 PINField(title: t("enterPin"), value: $passcode)
                 SignaturePad(strokes: $strokes, language: model.language).id(generation)
-                Button(t("findExisting")) { find() }.buttonStyle(.borderedProminent)
+                Button(t("findExisting")) { find() }.buttonStyle(.edgeCarePrimary)
                     .disabled(busy || app.session == nil || passcode.count != 4 || strokes.flatMap { $0 }.count < 4)
                 ForEach(candidates, id: \.record.id) { candidate in
                     Button { choose(candidate) } label: {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(candidate.record.id).font(.caption.monospaced())
                             Text(candidate.record.freeTextSummary).lineLimit(3)
-                        }.padding(12)
-                    }.buttonStyle(.bordered)
+                        }
+                    }.buttonStyle(.edgeCareRow)
                 }
             } else {
                 if let record { Text(record.id).font(.caption.monospaced()) }
@@ -51,7 +54,7 @@ import EdgeCareCore
                     Text(t("demoClinic"))
                     Text(t("bookingReference"))
                     Text(booking.id).font(.caption.monospaced()).textSelection(.enabled)
-                    Button(t("cancelAppointment"), role: .destructive) { cancelling = true }.buttonStyle(.bordered)
+                    Button(t("cancelAppointment"), role: .destructive) { cancelling = true }.buttonStyle(.edgeCareSecondary)
                 } else if loaded {
                     Text(t("demoClinic"))
                     Text(t("chooseSlot")).font(.headline)
@@ -71,21 +74,21 @@ import EdgeCareCore
                             HStack {
                                 Text(displayDate(slot.startDate))
                                 Spacer()
-                                if selected == slot.id { Image(systemName: "checkmark.circle.fill") }
-                            }.frame(minHeight: 48)
-                        }.buttonStyle(.bordered).accessibilityAddTraits(selected == slot.id ? .isSelected : [])
+                                if selected == slot.id { Image(systemName: "checkmark.circle.fill").foregroundStyle(EdgeCareStyle.mulberry) }
+                            }
+                        }.buttonStyle(EdgeCareRowButtonStyle(selected: selected == slot.id)).accessibilityAddTraits(selected == slot.id ? .isSelected : [])
                     }
                     Text(t("appointmentZone")).font(.footnote)
-                    Button(t("confirmAppointment")) { book() }.buttonStyle(.borderedProminent).disabled(selected == nil)
+                    Button(t("confirmAppointment")) { book() }.buttonStyle(.edgeCarePrimary).disabled(selected == nil)
                 }
-                Button(t("refreshAppointments")) { refresh() }.buttonStyle(.bordered)
+                Button(t("refreshAppointments")) { refresh() }.buttonStyle(.edgeCareSecondary)
             }
             if let errorKey { Text(t(errorKey)).foregroundStyle(.red).accessibilityAddTraits(.updatesFrequently) }
             if busy { ProgressView(t("saving")) }
             Button(t(record == nil ? "cancel" : "back")) {
                 clear()
                 if model.record != nil { model.step = 7 } else { model.reset() }
-            }.frame(minHeight: 48)
+            }.buttonStyle(.edgeCareSecondary)
         }
         .disabled(busy)
         .tint(EdgeCareStyle.mulberry)

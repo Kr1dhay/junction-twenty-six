@@ -1,10 +1,5 @@
 import SwiftUI
 
-public enum EdgeCareStyle {
-    public static let mulberry = Color(red: 131/255, green: 0, blue: 81/255)
-    public static let magenta = Color(red: 208/255, green: 0, blue: 111/255)
-}
-
 enum Copy {
     static let languages = ["en", "fi", "so", "ar", "ru"]
     static let names = ["English", "Suomi", "Soomaali", "العربية", "Русский"]
