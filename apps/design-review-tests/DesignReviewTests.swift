@@ -25,9 +25,70 @@ import XCTest
         add(attachment)
     }
 
+    private func tap(_ label: String, in app: XCUIApplication, toggle: Bool = false) {
+        let button = toggle ? app.switches[label] : app.buttons[label]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), label)
+        for _ in 0..<8 {
+            if button.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(button.isHittable, label)
+        button.tap()
+    }
+    private func text(_ label: String, in app: XCUIApplication) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    func testGuidanceIsDeclutteredAndSourcesRemainAvailable() {
+        let app = launch()
+        XCTAssertFalse(app.staticTexts["Shared-backend demo"].exists)
+        XCTAssertFalse(app.buttons["Demo controls"].exists)
+        XCTAssertFalse(app.staticTexts["This session clears after 3 minutes without activity."].exists)
+        tap("Create a new referral", in: app)
+        tap("Another health concern", in: app, toggle: true)
+        tap("Continue", in: app)
+        for _ in 0..<12 {
+            if app.staticTexts["Add context, if you want"].exists { break }
+            tap("No", in: app)
+        }
+        XCTAssertTrue(app.staticTexts["Add context, if you want"].exists)
+        XCTAssertFalse(text("Text read on device. Check and edit it; OCR can make mistakes. Remove names and contact details before continuing.", in: app).exists)
+        capture("14-optional-context-clean")
+        tap("Continue", in: app)
+        XCTAssertTrue(app.staticTexts["Your next step"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Demo triage for clinician review. A score is a routing aid, not a cancer probability."].exists)
+        XCTAssertFalse(app.staticTexts["Speech recognition requests on-device processing only. You can always type instead."].exists)
+        XCTAssertFalse(app.links["NHS · cancer information"].exists)
+        XCTAssertTrue(app.buttons["Create a private referral"].isHittable)
+        capture("10-guidance-clean")
+        tap("Sources", in: app)
+        XCTAssertTrue(app.links["NHS · cancer information"].exists)
+        tap("Sources", in: app)
+        tap("Create a private referral", in: app)
+        XCTAssertTrue(text("There is no code reset. If you forget your code, you lose access to this referral. No name, phone or account can recover it.", in: app).exists)
+        XCTAssertFalse(app.buttons["Synthetic demo · sample signature and code 1234"].exists)
+        capture("11-private-referral-clean")
+    }
+
+    func testEmergencyAdviceRemainsVisible() {
+        let app = launch()
+        tap("Create a new referral", in: app)
+        tap("Another health concern", in: app, toggle: true)
+        tap("Continue", in: app)
+        tap("Yes", in: app)
+        XCTAssertTrue(app.staticTexts["Emergency help is recommended"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.links["Call 112"].exists)
+        XCTAssertTrue(app.staticTexts["Call 112 now for possible emergency symptoms. Do not wait for a referral."].exists)
+        capture("12-emergency-advice")
+        // Do not follow the telephone link or submit a referral.
+    }
+
     func testWelcomeFormAndVoice() {
         let app = launch()
         capture("01-welcome")
+        tap("Privacy and care information", in: app)
+        XCTAssertTrue(text("This demo provides guidance for clinician review, not a diagnosis. The form stays on this device until you seal a referral. Optional online voice sends data to external providers only with your consent.", in: app).exists)
+        tap("Privacy and care information", in: app)
         app.buttons["Create a new referral"].tap()
         XCTAssertTrue(app.segmentedControls.buttons["Voice conversation"].waitForExistence(timeout: 5))
         capture("02-structured-intake")
@@ -37,6 +98,14 @@ import XCTest
         // Consent stays off. This review never captures/transmits microphone audio.
         XCTAssertFalse(app.buttons["Start conversation"].isEnabled)
         XCTAssertGreaterThanOrEqual(app.buttons["Start conversation"].frame.height, 200)
+    }
+
+    func testBookingHasOneConciseBoundaryNotice() {
+        let app = launch()
+        tap("Book an appointment", in: app)
+        XCTAssertTrue(app.staticTexts["This does not reserve a real clinic appointment."].waitForExistence(timeout: 5))
+        XCTAssertFalse(text("Shared demo schedule only. This does not book a real clinic appointment. For emergency symptoms, follow the emergency advice immediately.", in: app).exists)
+        capture("13-booking-clean")
     }
 
     func testFullScreenVoiceStatesWithoutCapturingAudio() {
@@ -55,7 +124,7 @@ import XCTest
                 XCTAssertGreaterThanOrEqual(app.buttons["voiceMicrophone"].frame.height, 200)
             }
             if phase == "speaking" {
-                XCTAssertTrue(app.staticTexts["Tap the microphone to interrupt. Your microphone is paused while Edi speaks and resumes automatically afterward."].exists)
+                XCTAssertTrue(text("Tap the microphone to interrupt. Your microphone is paused while Edi speaks and resumes automatically afterward.", in: app).exists)
             }
             if phase == "settling" {
                 XCTAssertFalse(app.buttons["voiceMicrophone"].exists)

@@ -348,6 +348,7 @@ extension ConversationController.Phase {
 
 struct StructuredConcernForm: View {
     @Bindable var model: IntakeViewModel
+    var compact = false
     private func t(_ key: String) -> String { Copy.text(key, model.language) }
     static let englishSymptoms = ["skin_change": "New or changing skin lesion", "lump": "New lump or swelling", "unexplained_bleeding": "Unexplained bleeding", "persistent_cough": "Persistent cough", "screening_letter": "Help understanding a screening letter", "other_concern": "Other health concern"]
     var body: some View {
@@ -372,7 +373,7 @@ struct StructuredConcernForm: View {
                 Text(t("severe")).tag("severe")
             }.pickerStyle(.menu).onChange(of: model.severity) { _, _ in updateProfile() }
             TextField(t("optionalNotes"), text: $model.concern, axis: .vertical).lineLimit(3...8).textFieldStyle(.roundedBorder)
-            Text(t("formProfileHint")).font(.footnote).foregroundStyle(.secondary)
+            if !compact { Text(t("formProfileHint")).font(.footnote).foregroundStyle(.secondary) }
         }
     }
     private func updateProfile() {

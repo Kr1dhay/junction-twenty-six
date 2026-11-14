@@ -28,7 +28,7 @@ import EdgeCareCore
                 EdiView(pose: .nextStep).frame(width: 64, height: 66)
                 Text(t("bookAppointment")).font(.largeTitle.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
             }
-            Text(t("demoBookingNotice")).foregroundStyle(.secondary)
+            Text(t(model.source == .kiosk ? "appointmentNotice" : "demoBookingNotice")).font(.subheadline).foregroundStyle(.secondary)
             if !app.connected {
                 Text(t("bookingConnectionRequired"))
             } else if record == nil {
@@ -51,12 +51,12 @@ import EdgeCareCore
                     Label(t("appointmentConfirmed"), systemImage: "checkmark.circle.fill").font(.title2).foregroundStyle(EdgeCareStyle.accent)
                     Text(displayDate(booking.startDate)).font(.title3.weight(.semibold))
                     Text(t("appointmentZone"))
-                    Text(t("demoClinic"))
+                    if model.source != .kiosk { Text(t("demoClinic")) }
                     Text(t("bookingReference"))
                     Text(booking.id).font(.caption.monospaced()).textSelection(.enabled)
                     Button(t("cancelAppointment"), role: .destructive) { cancelling = true }.buttonStyle(.edgeCareSecondary)
                 } else if loaded {
-                    Text(t("demoClinic"))
+                    if model.source != .kiosk { Text(t("demoClinic")) }
                     Text(t("chooseSlot")).font(.headline)
                     if slots.isEmpty { Text(t("noAppointmentSlots")) }
                     if !slots.isEmpty {
