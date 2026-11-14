@@ -10,6 +10,11 @@ The equity page does not poll referral records.
 Three reviewed action plans cover screening participation, referral acknowledgment,
 and appointment attendance. Every card includes an accountable owner, implementation
 steps, proposed resources, a measure, a pilot target, a dated source and evidence limits.
+The pathway overview links to each plan and updates its gap counts with the scenario.
+Each card compares rates with labelled bars on a shared 0–100% scale and retains
+the underlying counts. The proposed acknowledgment target is labelled as a threshold,
+not an observed cohort; exceeding it is shown explicitly in the closed-gap scenario.
+Stages have separate denominators and are not represented as a patient funnel.
 Apple-style system typography, 17px body text, generous spacing, restrained rounded
 surfaces and accessible controls are combined with AstraZeneca mulberry/magenta/graphite,
 as directed by `docs/design/apple-styling.md`.

@@ -16,6 +16,17 @@ for (const width of [1600, 390]) {
     await expect(section.locator("article")).toHaveCount(3);
     await expect(section.locator(".equity-gap > strong").first()).toHaveText("16.0 pp");
     const card = section.getByRole("article", { name: "Make screening invitations easier to act on" });
+    await expect(section.getByRole("status")).toHaveText("3 / 3 stages with a scenario gap");
+    const screeningChart = card.getByRole("figure", { name: /Cohort comparison/ });
+    await expect(screeningChart).toContainText("112 of 200");
+    await expect(screeningChart).toContainText("56%");
+    await expect(screeningChart).toContainText("72%");
+    const bars = screeningChart.locator('[aria-hidden="true"] > span[style]');
+    expect(await bars.nth(0).evaluate(element => parseFloat((element as HTMLElement).style.width))).toBeCloseTo(56);
+    expect(await bars.nth(1).evaluate(element => parseFloat((element as HTMLElement).style.width))).toBeCloseTo(72);
+    await section.getByRole("link", { name: /01.*Screening participation/ }).click();
+    await expect(page).toHaveURL(/#plan-screening$/);
+    await expect(card).toBeFocused();
     await card.getByText("Why this fits & implementation plan", { exact: true }).click();
     await expect(card.getByText("Resources to agree locally")).toBeVisible();
     await expect(card.getByRole("link")).toHaveAttribute("href", "https://stacks.cdc.gov/view/cdc/164181");
@@ -34,6 +45,9 @@ for (const width of [1600, 390]) {
     await expect(card.locator(".equity-gap > strong")).toHaveText("16.0 pp");
     await section.getByRole("combobox", { name: "Explore a scenario" }).selectOption("improved");
     await expect(section.getByText("No gap detected", { exact: true })).toHaveCount(3);
+    await expect(section.getByRole("status")).toHaveText("0 / 3 stages with a scenario gap");
+    await expect(card.getByRole("figure")).toContainText("144 of 200");
+    await expect(section.getByText("6 pp above the proposed target")).toBeVisible();
     await expect(section.getByRole("button", { name: "Explain this plan with AI" })).toHaveCount(0);
     await section.getByRole("combobox", { name: "Explore a scenario" }).selectOption("baseline");
     await expect(section.getByText("AI-assisted explanation · review required")).toHaveCount(0);
