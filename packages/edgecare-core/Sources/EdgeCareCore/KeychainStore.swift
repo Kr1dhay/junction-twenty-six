@@ -2,7 +2,7 @@ import Foundation
 import Security
 import CryptoKit
 
-/// Local wallet keys only. Never retain the patient's four-digit passcode.
+/// Device-local secrets. Never retain the patient's four-digit passcode.
 public struct KeychainStore: Sendable {
     private let service: String
     public init(service: String = "org.edgecare.local-keys") { self.service = service }
