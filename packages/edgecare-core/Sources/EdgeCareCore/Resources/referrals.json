@@ -9,7 +9,7 @@
       "demo_only"
     ],
     "free_text_summary": "Synthetic example: a changing skin mark, discussed during a demo consultation.",
-    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "patient_language_summary": "Tani waa tusaale bandhig ah, mana aha ogaansho caafimaad. La xiriir xirfadle caafimaad si loo qiimeeyo isbeddelka maqaarka.",
     "risk_score": 75,
     "risk_band": "high",
     "recommended_specialty": "dermatology",
@@ -38,7 +38,7 @@
       "demo_only"
     ],
     "free_text_summary": "Synthetic example: help understanding an invitation to screening.",
-    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "patient_language_summary": "Tämä on esimerkkitapaus, ei diagnoosi. Pyydä terveyskeskusta selittämään seulontakutsu ja sen toimintaohjeet.",
     "risk_score": 45,
     "risk_band": "medium",
     "recommended_specialty": "gynaecology",
@@ -67,7 +67,7 @@
       "demo_only"
     ],
     "free_text_summary": "Synthetic example: a question about accessing local care.",
-    "patient_language_summary": "Synthetic placeholder; approved translations pending.",
+    "patient_language_summary": "This is a demonstration, not a diagnosis. Ask a local health service about the care available to you.",
     "risk_score": 15,
     "risk_band": "low",
     "recommended_specialty": "general practice",

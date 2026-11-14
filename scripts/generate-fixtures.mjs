@@ -4,6 +4,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const passcode = '1234';
 const points = Array.from({ length: 32 }, (_, i) => ({ time: 0, x: i / 31, y: i / 31 }));
 const template = Buffer.from(JSON.stringify({ points }));
+const guidance = {
+  so: 'Tani waa tusaale bandhig ah, mana aha ogaansho caafimaad. La xiriir xirfadle caafimaad si loo qiimeeyo isbeddelka maqaarka.',
+  fi: 'Tämä on esimerkkitapaus, ei diagnoosi. Pyydä terveyskeskusta selittämään seulontakutsu ja sen toimintaohjeet.',
+  en: 'This is a demonstration, not a diagnosis. Ask a local health service about the care available to you.',
+};
 const records = [
   ['so', 'dermatology', 'high', 75, 'Synthetic example: a changing skin mark, discussed during a demo consultation.'],
   ['fi', 'gynaecology', 'medium', 45, 'Synthetic example: help understanding an invitation to screening.'],
@@ -21,7 +26,7 @@ const records = [
     createHash('sha256').update(template).digest(), Buffer.from(passcode), Buffer.from(id), salt,
   ])).digest('hex');
   return { referral_id: id, created_at: `2026-11-${14 - index}T09:00:00.000Z`, source: index === 1 ? 'patient_app' : 'kiosk', kiosk_id: null,
-    language, symptoms: ['demo_only'], free_text_summary: summary, patient_language_summary: 'Synthetic placeholder; approved translations pending.',
+    language, symptoms: ['demo_only'], free_text_summary: summary, patient_language_summary: guidance[language],
     risk_score: score, risk_band: band, recommended_specialty: specialty,
     letter_scan: { present: index === 1, extracted_text: index === 1 ? 'Synthetic screening invitation.' : null },
     lesion_photo: { present: false, assessment: null }, signature_template_encrypted: encrypt(template, index * 2 + 1),

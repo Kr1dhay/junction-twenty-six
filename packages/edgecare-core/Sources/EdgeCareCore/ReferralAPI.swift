@@ -1,36 +1,81 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 public protocol ReferralAPI: Sendable {
     func submit(_ record: ReferralRecord) async throws
     func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord
+    func list() async throws -> [ReferralRecord]
+}
+public extension ReferralAPI {
+    func list() async throws -> [ReferralRecord] { throw CoreError.notConfigured }
 }
 public actor MockReferralAPI: ReferralAPI {
     private var records: [String: ReferralRecord]
-    public init(records: [ReferralRecord] = []) { self.records = Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) }) }
+    public init(records: [ReferralRecord] = []) { self.records = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
     public func submit(_ record: ReferralRecord) throws {
         if let existing = records[record.id], existing != record { throw CoreError.conflict }
         records[record.id] = record
     }
+    public func list() -> [ReferralRecord] { records.values.sorted { $0.createdAt > $1.createdAt } }
     public func fetchVerificationEnvelope(id: String) throws -> ReferralRecord {
         guard let record = records[id] else { throw CoreError.notFound }; return record
     }
 }
-public struct RESTReferralAPI: ReferralAPI {
-    private let baseURL: URL
-    private let configuration: AppConfiguration
-    public init(baseURL: URL, configuration: AppConfiguration) { self.baseURL = baseURL; self.configuration = configuration }
-    public func submit(_ record: ReferralRecord) async throws {
+
+/// Central transport guard: a DEMO_MODE client cannot send even one HTTP request.
+struct DemoHTTPTransport: Sendable {
+    let baseURL: URL
+    let configuration: AppConfiguration
+    let bearerToken: String?
+    let issuerToken: String?
+    func request(path: [String], method: String = "GET", body: Data? = nil, issuer: Bool = false) async throws -> Data {
         guard configuration.allowsNetwork else { throw CoreError.invalidConfiguration }
-        var request = URLRequest(url: baseURL.appendingPathComponent("referrals"))
-        request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(record)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse, [200, 201].contains(response.statusCode) else { throw CoreError.conflict }
+        let loopback = ["localhost", "127.0.0.1", "::1"].contains(baseURL.host ?? "")
+        guard baseURL.scheme == "https" || (baseURL.scheme == "http" && loopback) else { throw CoreError.invalidConfiguration }
+        let url = path.reduce(baseURL) { $0.appendingPathComponent($1) }
+        var request = URLRequest(url: url); request.httpMethod = method; request.httpBody = body; request.timeoutInterval = path.contains("voice") || path.contains("profile") ? 150 : 15
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if let token = issuer ? (issuerToken ?? bearerToken) : bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // An ephemeral session prevents clinician envelopes from being written to URLCache.
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw CoreError.invalidResponse }
+        switch response.statusCode {
+        case 200...299: return data
+        case 401, 403: throw CoreError.unauthorized
+        case 404: throw CoreError.notFound
+        case 409: throw CoreError.conflict
+        case 422: throw CoreError.languageUncertain
+        case 503: throw CoreError.providerUnavailable
+        default: throw CoreError.invalidResponse
+        }
+    }
+}
+public struct RESTReferralAPI: ReferralAPI {
+    private let transport: DemoHTTPTransport
+    public init(baseURL: URL, configuration: AppConfiguration, bearerToken: String? = nil, issuerToken: String? = nil) {
+        transport = DemoHTTPTransport(baseURL: baseURL, configuration: configuration, bearerToken: bearerToken, issuerToken: issuerToken)
+    }
+    public func submit(_ record: ReferralRecord) async throws {
+        _ = try await transport.request(path: ["referrals"], method: "POST", body: try JSONEncoder().encode(record), issuer: true)
     }
     public func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord {
-        guard configuration.allowsNetwork else { throw CoreError.invalidConfiguration }
-        let url = baseURL.appendingPathComponent("referrals").appendingPathComponent(id).appendingPathComponent("verification")
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CoreError.notFound }
+        guard let uuid = UUID(uuidString: id) else { throw CoreError.notFound }
+        let data = try await transport.request(path: ["referrals", uuid.uuidString.lowercased(), "verification"])
         return try JSONDecoder().decode(ReferralRecord.self, from: data)
+    }
+    public func list() async throws -> [ReferralRecord] {
+        struct Index: Decodable { let referrals: [Item] }
+        struct Item: Decodable { let referralID: String; enum CodingKeys: String, CodingKey { case referralID = "referral_id" } }
+        let data = try await transport.request(path: ["referrals"])
+        let index = try JSONDecoder().decode(Index.self, from: data)
+        var records: [ReferralRecord] = []
+        for item in index.referrals { records.append(try await fetchVerificationEnvelope(id: item.referralID)) }
+        return records
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 public struct AppConfiguration: Sendable {
-    public enum Chain: String, Sendable { case mock, devnet }
+    public enum Chain: String, Sendable { case mock, demoHTTP, devnet }
     public enum LLM: String, Sendable { case ondevice, gemini }
     public let demoMode: Bool
     public let offline: Bool
@@ -12,4 +12,5 @@ public struct AppConfiguration: Sendable {
         self.demoMode = demoMode; self.offline = offline; self.chain = chain; self.llm = llm
     }
     public static let demo = try! AppConfiguration()
+    public static let connectedDemo = try! AppConfiguration(demoMode: false, offline: false, chain: .demoHTTP)
 }

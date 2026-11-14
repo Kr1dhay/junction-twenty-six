@@ -1,17 +1,18 @@
 import { referralSchema } from "@edgecare/shared-types";
 import { backend } from "../../server/backend";
 import { ConflictError } from "../../server/repository";
-import { demoGuard, json } from "../../server/http";
+import { demoGuard, json, readJSON } from "../../server/http";
+import { accessGuard } from "../../server/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export async function GET() {
-  const guard = demoGuard(); if (guard) return guard;
+export async function GET(request: Request) {
+  const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
   return json({ referrals: backend().list() });
 }
 export async function POST(request: Request) {
-  const guard = demoGuard(); if (guard) return guard;
+  const guard = demoGuard() ?? accessGuard(request, "issuer"); if (guard) return guard;
   let body: unknown;
-  try { body = await request.json(); } catch { return json({ error: "Expected JSON" }, 400); }
+  try { body = await readJSON(request); } catch { return json({ error: "Expected a JSON enrollment under 128 KiB" }, 400); }
   const parsed = referralSchema.safeParse(body);
   if (!parsed.success || parsed.data.status !== "open") return json({ error: "Invalid enrollment record" }, 400);
   try {

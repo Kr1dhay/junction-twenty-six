@@ -1,0 +1,21 @@
+{
+  "name": "@edgecare/demo-video",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.tsx",
+    "render": "remotion render src/index.tsx EdgeCare out/edgecare.mp4",
+    "still": "remotion still src/index.tsx EdgeCare out/preview.png --frame=150",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "remotion": "4.0.543",
+    "@remotion/cli": "4.0.543",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

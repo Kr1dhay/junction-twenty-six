@@ -16,3 +16,10 @@ target/
 test-ledger/
 demo/remotion/out/
 apps/crm-web/next-env.d.ts
+
+artifacts/
+__pycache__/
+*.pyc
+playwright-report/
+test-results/
+demo/remotion/public/voiceover.mp3

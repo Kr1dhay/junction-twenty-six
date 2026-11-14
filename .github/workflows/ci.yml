@@ -1,4 +1,4 @@
-name: Scaffold checks
+name: Edge-Care checks
 on: [push, pull_request]
 jobs:
   web:
@@ -16,6 +16,14 @@ jobs:
       - run: pnpm check
       - run: pnpm schema && git diff --exit-code -- packages/shared-types/schema
       - run: pnpm build
+      - run: pnpm test:launcher
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: test-results/
   apple:
     runs-on: macos-15
     steps:

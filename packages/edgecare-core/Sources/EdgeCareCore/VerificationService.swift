@@ -2,21 +2,35 @@ import Foundation
 public struct VerificationService: Sendable {
     public let chain: any ChainClient
     public init(chain: any ChainClient) { self.chain = chain }
-    public func verifyAndSpend(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) async throws {
+    /// Authentication is entirely local, using the enrolled template bytes for the commitment.
+    public static func authenticate(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) throws -> String {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let expiry = formatter.date(from: record.expiresAt) ?? ISO8601DateFormatter().date(from: record.expiresAt)
         guard let expiry, expiry > now else { throw CoreError.expired }
-        guard record.status == .open else { throw CoreError.verificationFailed }
+        guard record.status != .spent else { throw CoreError.alreadySpent }
+        guard record.status == .open else { throw CoreError.expired }
         guard let salt = Data(base64Encoded: record.salt), let encrypted = Data(base64Encoded: record.signatureTemplateEncrypted),
               let id = UUID(uuidString: record.id) else { throw CoreError.verificationFailed }
-        let enrolledData = try CommitmentCrypto.decrypt(encrypted, passcode: passcode, salt: salt)
+        let enrolledData: Data
+        do { enrolledData = try CommitmentCrypto.decrypt(encrypted, passcode: passcode, salt: salt) }
+        catch { throw CoreError.verificationFailed }
         let enrolled = try JSONDecoder().decode(SignatureTemplate.self, from: enrolledData)
         let fresh = try SignatureMatcher.extract(strokes)
         guard SignatureMatcher.similarity(enrolled, fresh) >= SignatureMatcher.threshold else { throw CoreError.verificationFailed }
         let hash = try CommitmentCrypto.commitment(template: enrolledData, passcode: passcode, referralID: id, salt: salt)
-        guard let account = try await chain.read(referralID: record.id), account.commitmentHash == hash,
-              record.commitmentHash == hash else { throw CoreError.verificationFailed }
-        guard !account.spent else { throw CoreError.alreadySpent }
-        try await chain.spend(referralID: record.id)
+        guard record.commitmentHash == hash else { throw CoreError.verificationFailed }
+        return hash
     }
+    public func verifyAndSpend(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) async throws {
+        let hash = try Self.authenticate(record: record, passcode: passcode, strokes: strokes, now: now)
+        guard let account = try await chain.read(referralID: record.id), account.commitmentHash == hash else { throw CoreError.verificationFailed }
+        guard !account.spent else { throw CoreError.alreadySpent }
+        try await chain.spend(referralID: record.id, hash: hash, operationID: UUID().uuidString.lowercased())
+    }
+}
+public enum VerificationSettlement: String, Sendable { case localDemo, confirmed, provisional }
+public struct VerificationOutcome: Sendable {
+    public let settlement: VerificationSettlement
+    public let message: String
+    public init(settlement: VerificationSettlement, message: String) { self.settlement = settlement; self.message = message }
 }

@@ -10,17 +10,25 @@
     "dev": "pnpm --filter @edgecare/crm-web dev",
     "build": "pnpm --filter @edgecare/crm-web build",
     "start": "pnpm --filter @edgecare/crm-web start",
-    "typecheck": "pnpm -r typecheck",
-    "test": "tsx --test packages/shared-types/tests/*.test.ts apps/crm-web/tests/*.test.ts",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.tools.json",
+    "test": "tsx --test packages/shared-types/tests/*.test.ts apps/crm-web/tests/*.test.ts scripts/tests/*.test.ts",
     "check": "pnpm typecheck && pnpm test",
     "schema": "tsx scripts/generate-schema.ts",
     "ios:generate": "xcodegen generate --spec project.yml",
-    "test:swift": "swift test --package-path packages/edgecare-core"
+    "test:swift": "swift test --package-path packages/edgecare-core",
+    "ios:demo": "python3 scripts/run-apple-demo.py",
+    "test:launcher": "python3 -m unittest discover -s scripts/tests -v",
+    "registry": "tsx scripts/registry.ts",
+    "demo:studio": "pnpm --filter @edgecare/demo-video studio",
+    "demo:render": "pnpm --filter @edgecare/demo-video render",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "@types/node": "^22.0.0",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "@solana/web3.js": "1.98.4",
+    "@playwright/test": "^1.56.1"
   }
 }

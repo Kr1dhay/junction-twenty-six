@@ -116,4 +116,33 @@ public enum DemoData {
         return try JSONDecoder().decode([ReferralRecord].self, from: Data(contentsOf: url))
     }
 }
-public enum CoreError: Error, Equatable { case invalidPasscode, invalidSalt, invalidSignature, notConfigured, conflict, notFound, alreadySpent, expired, verificationFailed, invalidConfiguration }
+public enum CoreError: Error, Equatable { case invalidPasscode, invalidSalt, invalidSignature, notConfigured, conflict, notFound, alreadySpent, expired, verificationFailed, invalidConfiguration, passcodesDoNotMatch, emptyConcern, offline, noCachedCommitment, consentRequired, invalidResponse, unauthorized, providerUnavailable, languageUncertain }
+
+public extension DemoData {
+    static let passcode = "1234"
+    static func signatureStrokes() -> [[SignaturePoint]] {
+        [(0..<8).map { SignaturePoint(x: Double($0), y: Double($0)) }]
+    }
+}
+
+public extension CoreError {
+    var userMessage: String {
+        switch self {
+        case .invalidPasscode: return "Enter exactly four digits (0–9)."
+        case .passcodesDoNotMatch: return "The two passcodes differ. Please enter them again."
+        case .invalidSignature: return "Please draw a longer signature and try again."
+        case .emptyConcern: return "Please describe your concern first."
+        case .alreadySpent: return "This referral has already been used. Ask the clinician for help."
+        case .expired: return "This referral has expired. Please ask for a new assessment."
+        case .offline, .noCachedCommitment: return "This device needs to load the referral and its commitment while connected before it can verify offline."
+        case .verificationFailed: return "We could not match this signature and passcode. Please try again."
+        case .conflict: return "Another verification was accepted first. Clinician review is needed."
+        case .notFound: return "This referral was not found on this device or service."
+        case .consentRequired: return "Online processing needs explicit consent. You can continue on this device."
+        case .languageUncertain: return "The spoken language could not be detected confidently. Please repeat or choose your language."
+        case .providerUnavailable: return "Online voice is not configured or is temporarily unavailable. Continue with the form on this device."
+        case .unauthorized: return "This service needs a configured clinician or issuer access token."
+        default: return "This action could not complete. Your saved referral remains on this device."
+        }
+    }
+}

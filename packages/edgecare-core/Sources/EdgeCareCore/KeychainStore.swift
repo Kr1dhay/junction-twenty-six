@@ -33,3 +33,23 @@ public struct KeychainStore: Sendable {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw CoreError.notConfigured }
     }
 }
+
+extension KeychainStore {
+    public func walletKey(account: String = "referral-wallet-v1") throws -> Data {
+        if let existing = try read(account: account) {
+            guard existing.count == 32 else { throw CoreError.invalidConfiguration }
+            return existing
+        }
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw CoreError.notConfigured }
+        let key = Data(bytes)
+        // Add rather than update: concurrent session startup must not replace an existing wallet key.
+        let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service, kSecAttrAccount as String: account,
+            kSecValueData as String: key, kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let status = SecItemAdd(item as CFDictionary, nil)
+        if status == errSecDuplicateItem, let existing = try read(account: account), existing.count == 32 { return existing }
+        guard status == errSecSuccess else { throw CoreError.notConfigured }
+        return key
+    }
+}

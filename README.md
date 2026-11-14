@@ -1,57 +1,62 @@
 # Edge-Care
 
-Junction 2026 monorepo scaffold for four anonymous cancer-care demo applications. Start with [API.md](API.md), the shared integration contract, and [the project brief](docs/project-brief.md).
+Four applications for an anonymous cancer-care demonstration, in one monorepo. The kiosk and patient phone share intake, signature enrollment and an encrypted referral wallet. The doctor phone verifies a signature and four-digit code; the web CRM follows referrals and single-use status.
 
-| App | Stack | Scaffold |
-| --- | --- | --- |
-| `apps/kiosk-ios` | Swift 6, SwiftUI, MVVM, iPad/iOS 17+ | Language selection and typed intake shell |
-| `apps/crm-web` | Next.js, strict TypeScript, Tailwind | Working referral browser, filters, details, polling and local REST/SQLite backend |
-| `apps/doctor-ios` | Swift 6, SwiftUI, MVVM, iOS 17+ | Anonymous referral selection and verification shell |
-| `apps/patient-ios` | Swift 6, SwiftUI, MVVM, iPhone/iOS 17+ | Shared intake and wallet shell |
+| Application | Implementation |
+| --- | --- |
+| `apps/kiosk-ios` | SwiftUI iPad intake: structured form, conversational voice, evidence capture and enrollment |
+| `apps/patient-ios` | Shared intake on iPhone, encrypted wallet and referral-ID handoff |
+| `apps/doctor-ios` | Referral selection, cached verification, signature/PIN checks and spend reconciliation |
+| `apps/crm-web` | Next.js clinician workspace, filters, details, polling, REST API and SQLite |
 
-Shared Swift models, crypto, signature matching, persistent mock registry, verification service and enrollment outbox live in `packages/edgecare-core`. TypeScript models, validation, read projections, JSON Schema and deterministic fixtures live in `packages/shared-types`. The Anchor scaffold is in `programs/edgecare-registry`; `demo/remotion` reserves the video workspace.
+`packages/edgecare-core` contains shared Swift models, cryptography, signature matching, intake, persistence and sync; `packages/shared-types` contains TypeScript validation, projections and fixtures. [API.md](API.md) documents the shared contract. Design references are in [docs/design](docs/design).
 
-## Run the CRM and local backend
+## Run the CRM
 
 Requires Node 22.11+ and pnpm 9.15.9.
 
 ```sh
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 cp apps/crm-web/.env.example apps/crm-web/.env.local
 pnpm dev
 ```
 
-Open http://127.0.0.1:3000. Three synthetic referrals seed automatically. SQLite persists under `apps/crm-web/.data/`. The backend exposes `/health`, `/referrals`, `/referrals/:id`, and `/referrals/:id/verification`; there is no separate backend process. The demo guard requires `DEMO_MODE=true`, `CHAIN=mock`, `LLM=ondevice`. Authentication and production adapters are not implemented; keep this local with synthetic data.
+Open http://127.0.0.1:3000 and enter the clinician demo. Three synthetic records seed automatically; SQLite persists under `apps/crm-web/.data/`. Optional issuer and clinician tokens protect shared LAN access. This is a synthetic demo, not a production healthcare service.
+
+## Run the three Apple apps
+
+On your Mac, install full Xcode, its iOS Simulator runtime and XcodeGen (`brew install xcodegen`), then run:
 
 ```sh
-pnpm check       # strict types + protocol/repository/route tests
-pnpm build       # production web compilation
-pnpm start      # serves the compiled build on loopback
-pnpm schema     # regenerate the JSON wire schema
+python3 scripts/run-apple-demo.py --list
+python3 scripts/run-apple-demo.py
 ```
 
-`node scripts/generate-fixtures.mjs` regenerates identical Swift/TypeScript fixtures. Fixture crypto uses known PIN `1234` and fixed test nonces; never use those keys/nonces for runtime enrollment. The expiry dates are fixed for reproducibility.
+The launcher opens Xcode, runs Swift tests, builds and launches the kiosk on an **M1 iPad Air (5th generation, 10.9-inch)** simulator, the doctor app on **iPhone 15 Pro Max**, and the patient app on **iPhone 13 Pro**. It requests **iOS 27.2.1** exactly and stops with installed alternatives if unavailable. `--runtime latest` explicitly selects a substitute. See [the Mac walkthrough](docs/apple-demo.md) for setup, physical devices and logs.
 
-## Open the three native apps
+Connected mode shares the local backend across devices. `--mode local` makes no network calls and gives each device an independent persistent store. Offline connected enrollments and spends queue durably; an offline spend remains provisional until the shared registry accepts it.
 
-On macOS with Xcode 16+ (Swift 6) and XcodeGen 2.42+:
+## Kiosk language and voice
+
+Patients can complete a structured form offline or have a turn-by-turn voice conversation online. Voice uses ElevenLabs speech recognition with automatic language detection, a server-side conversational assistant that updates an English clinical profile, and ElevenLabs speech in the detected language. The configured multilingual voice can be overridden per language. The five demo languages are English, Finnish, Somali, Arabic and Russian.
+
+Voice requires explicit consent, connectivity and server-side ElevenLabs/Gemini credentials. The form remains available without those services. The clinical profile and clinician summary use English; localized replies and patient guidance are separate. No patient voice cloning is performed. See the server `.env.example` and [voice setup](docs/voice-intake.md).
+
+## Checks and additional tools
 
 ```sh
-brew install xcodegen
-pnpm ios:generate
-open EdgeCare.xcodeproj
-pnpm test:swift
+pnpm check                 # strict types and protocol/API tests
+pnpm test:launcher         # simulator-selection tests
+pnpm build                 # production CRM build
+pnpm test:browser          # browser/API integration; run build first
+pnpm test:swift            # macOS: shared Swift lifecycle tests
+pnpm schema               # regenerate referral JSON Schema
+pnpm demo:studio          # 90-second Remotion composition
 ```
 
-Select `EdgeCareKiosk`, `EdgeCareDoctor` or `EdgeCarePatient`, then an appropriate iOS simulator. For physical devices set your signing team in Xcode. All three targets depend on the local Swift package. Native composition roots default to `AppConfiguration.demo`; live adapters require explicit wiring and cannot silently activate in demo/offline mode.
+Install Playwright Chromium with `pnpm exec playwright install chromium`, or set `EDGECARE_TEST_CHROME` to an existing compatible Chrome executable. `EDGECARE_TEST_DEV=true` uses a development server for browser tests instead of the production build.
 
-## Registry
+The [Anchor registry and signed devnet CLI](programs/edgecare-registry/README.md) are separate from the native connected-demo HTTP registry. Devnet needs a deployed program and funded signer; no transaction or deployment has been performed. The [Remotion composition](demo/remotion/README.md) accepts actual product recordings and an optional generated ElevenLabs voiceover; its default scenes are explicitly labeled storyboards.
 
-Install Rust, Solana/Agave and Anchor 0.32.1, then run `cargo test -p edgecare-registry` and `anchor build`. The checked-in program ID is a placeholder; run `anchor keys sync` after generating deployment keys. No devnet deployment, funded wallets or production credentials are included. The stored verifier signer authorizes spending; the program does not verify biometrics itself.
-
-## Scope and next slices
-
-This is the architecture scaffold, not the finished clinical demo. Next: connect signature/passcode enrollment and verification UI; implement encrypted patient wallet/keychain lifecycle, on-device speech/vision and translated triage; wire devnet signing/status reconciliation and offline conflicts; then apply the two authoritative design documents and produce the video. See [architecture](docs/architecture.md) and [decisions](docs/decisions.md) for the boundaries and brief ambiguities resolved here.
-
-UI uses neutral/native defaults until AstraZeneca branding and Apple styling documents arrive. No actual medical triage or diagnosis is performed.
+On-device Apple Vision OCR is implemented. No Nemotron/Core ML weights or validated lesion assessment are bundled. Signature matching and workflow priority scores are demonstration logic, not clinical or identity assurance. Native compilation/device checks and live provider calls require the tools and credentials described in [verification](docs/verification.md).

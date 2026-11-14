@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).min(4);
+export const commitmentRequestSchema = z.object({ commitment_hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+export const spendRequestSchema = commitmentRequestSchema.extend({ operation_id: z.string().uuid().optional() }).strict();
 export const referralSchema = z.object({
   referral_id: z.string().uuid().transform(value => value.toLowerCase()),
   created_at: z.string().datetime(),
@@ -56,4 +58,35 @@ export interface ChainClient {
   create(id: string, hash: string): void;
   read(id: string): CommitmentAccount | undefined;
   spend(id: string): void;
+}
+
+
+export const clinicalProfileSchema = z.object({
+  concern_english: z.string().max(4000),
+  symptoms_english: z.array(z.string().max(200)).max(30),
+  duration_english: z.string().max(500),
+  additional_context_english: z.string().max(4000),
+}).strict();
+export const conversationMessageSchema = z.object({ role: z.enum(["user", "assistant"]), text: z.string().min(1).max(4000) }).strict();
+export const voiceTurnRequestSchema = z.object({
+  consent: z.literal(true),
+  audio_base64: base64.max(8 * 1024 * 1024).optional(),
+  audio_mime_type: z.enum(["audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/wav", "audio/mpeg", "audio/webm"]).optional(),
+  text: z.string().trim().min(1).max(4000).optional(),
+  language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/).optional(),
+  profile: clinicalProfileSchema.optional(),
+  history: z.array(conversationMessageSchema).max(30).optional(),
+}).strict().refine(value => Boolean(value.audio_base64) !== Boolean(value.text), "Provide exactly one audio or text turn")
+  .refine(value => !value.audio_base64 || Boolean(value.audio_mime_type), "Audio MIME type is required");
+export type ClinicalProfile = z.infer<typeof clinicalProfileSchema>;
+export type VoiceTurnRequest = z.infer<typeof voiceTurnRequestSchema>;
+export interface VoiceTurnResponse {
+  transcript: string;
+  detected_language: string;
+  reply: string;
+  profile: ClinicalProfile;
+  audio_base64: string | null;
+  audio_mime_type: "audio/mpeg" | null;
+  speech_available: boolean;
+  speech_error: string | null;
 }

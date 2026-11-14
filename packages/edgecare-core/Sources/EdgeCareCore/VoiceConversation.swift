@@ -1,0 +1,81 @@
+import Foundation
+
+/// Canonical clinical values are English even when conversation and playback use another language.
+public struct ClinicalProfile: Codable, Equatable, Sendable {
+    public var concernEnglish: String
+    public var symptomsEnglish: [String]
+    public var durationEnglish: String
+    public var additionalContextEnglish: String
+    public init(concernEnglish: String = "", symptomsEnglish: [String] = [], durationEnglish: String = "", additionalContextEnglish: String = "") {
+        self.concernEnglish = concernEnglish; self.symptomsEnglish = symptomsEnglish
+        self.durationEnglish = durationEnglish; self.additionalContextEnglish = additionalContextEnglish
+    }
+    public var clinicianSummary: String {
+        [concernEnglish, symptomsEnglish.isEmpty ? "" : "Symptoms: " + symptomsEnglish.joined(separator: ", "),
+         durationEnglish.isEmpty ? "" : "Duration: " + durationEnglish, additionalContextEnglish]
+            .filter { !$0.isEmpty }.joined(separator: ". ")
+    }
+    enum CodingKeys: String, CodingKey {
+        case concernEnglish = "concern_english", symptomsEnglish = "symptoms_english"
+        case durationEnglish = "duration_english", additionalContextEnglish = "additional_context_english"
+    }
+}
+public struct VoiceConversationTurn: Codable, Equatable, Sendable {
+    public let role: String
+    public let text: String
+    public init(role: String, text: String) { self.role = role; self.text = text }
+}
+public struct VoiceTurnRequest: Encodable, Sendable {
+    public let consent: Bool
+    public let audioBase64: String?
+    public let audioMimeType: String?
+    public let text: String?
+    public let language: String?
+    public let profile: ClinicalProfile
+    public let history: [VoiceConversationTurn]
+    public init(consent: Bool, audio: Data? = nil, mimeType: String = "audio/mp4", text: String? = nil,
+                language: String? = nil, profile: ClinicalProfile = ClinicalProfile(), history: [VoiceConversationTurn] = []) {
+        self.consent = consent; audioBase64 = audio?.base64EncodedString(); audioMimeType = audio == nil ? nil : mimeType
+        self.text = text; self.language = language; self.profile = profile; self.history = Array(history.suffix(30))
+    }
+    enum CodingKeys: String, CodingKey {
+        case consent, audioBase64 = "audio_base64", audioMimeType = "audio_mime_type", text, language, profile, history
+    }
+}
+public struct VoiceTurnResponse: Decodable, Sendable {
+    public let transcript: String
+    public let detectedLanguage: String
+    public let reply: String
+    public let profile: ClinicalProfile
+    public let audioBase64: String?
+    public let audioMimeType: String?
+    public let speechAvailable: Bool
+    public let speechError: String?
+    public var audio: Data? { audioBase64.flatMap { Data(base64Encoded: $0) } }
+    enum CodingKeys: String, CodingKey {
+        case transcript, detectedLanguage = "detected_language", reply, profile, audioBase64 = "audio_base64", audioMimeType = "audio_mime_type"
+        case speechAvailable = "speech_available", speechError = "speech_error"
+    }
+}
+/// Uses only our configured backend. Provider keys remain server-side and no upload occurs without consent.
+public struct ConsentGatedVoiceClient: Sendable {
+    private let transport: DemoHTTPTransport
+    public init(baseURL: URL, configuration: AppConfiguration, bearerToken: String? = nil) {
+        transport = DemoHTTPTransport(baseURL: baseURL, configuration: configuration, bearerToken: bearerToken, issuerToken: bearerToken)
+    }
+    public func turn(_ request: VoiceTurnRequest) async throws -> VoiceTurnResponse {
+        try await send(request, path: ["demo", "voice", "turn"])
+    }
+    public func normalize(_ request: VoiceTurnRequest) async throws -> VoiceTurnResponse {
+        try await send(request, path: ["demo", "profile", "normalize"])
+    }
+    private func send(_ request: VoiceTurnRequest, path: [String]) async throws -> VoiceTurnResponse {
+        guard request.consent else { throw CoreError.consentRequired }
+        guard request.audioBase64 != nil || !(request.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { throw CoreError.emptyConcern }
+        let data = try await transport.request(path: path, method: "POST", body: try JSONEncoder().encode(request), issuer: true)
+        let response = try JSONDecoder().decode(VoiceTurnResponse.self, from: data)
+        guard !response.reply.isEmpty, !response.detectedLanguage.isEmpty, !response.speechAvailable || response.audio != nil else { throw CoreError.invalidResponse }
+        return response
+    }
+}
+public typealias VoiceClient = ConsentGatedVoiceClient
