@@ -20,6 +20,6 @@ export default defineConfig({
     url: "http://127.0.0.1:4317/health",
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { DEMO_MODE: "true", CHAIN: "mock", LLM: "ondevice", EDGECARE_CLINICIAN_TOKEN: "", EDGECARE_ISSUER_TOKEN: "", EDGECARE_PUBLIC_ORIGIN: "", DATABASE_URL: "", VERCEL: "", EDGECARE_CLOUD_VOICE: "false", EDGECARE_SESSION_SECRET: "synthetic-browser-session-secret-for-tests-only", EDGECARE_DB_PATH: join(tmpdir(), `edgecare-browser-${process.pid}.sqlite`) },
+    env: { DEMO_MODE: "true", CHAIN: "mock", LLM: "ondevice", EDGECARE_CLINICIAN_TOKEN: "", EDGECARE_ISSUER_TOKEN: "", EDGECARE_PUBLIC_ORIGIN: "", DATABASE_URL: "", VERCEL: "", EDGECARE_CLOUD_VOICE: "false", EDGECARE_PUBLIC_DATA: "snapshot", EDGECARE_SESSION_SECRET: "synthetic-browser-session-secret-for-tests-only", EDGECARE_DB_PATH: join(tmpdir(), `edgecare-browser-${process.pid}.sqlite`) },
   },
 });

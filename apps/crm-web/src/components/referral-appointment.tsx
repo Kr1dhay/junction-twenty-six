@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { Appointment } from "../server/appointments";
+import { formatWait } from "../lib/waiting";
 
-export function ReferralAppointment({ referralID }: { referralID: string }) {
+export function ReferralAppointment({ referralID, receivedAt }: { referralID: string; receivedAt?: string }) {
   const [result, setResult] = useState<{ id: string; appointment: Appointment | null; failed: boolean }>();
   useEffect(() => {
     let disposed = false;
@@ -25,6 +26,7 @@ export function ReferralAppointment({ referralID }: { referralID: string }) {
   }, [referralID]);
   const current = result?.id === referralID ? result : undefined;
   const booking = current?.appointment;
+  const toBooking = booking && receivedAt ? Date.parse(booking.created_at) - Date.parse(receivedAt) : NaN;
   return <section className="detail-section" aria-label="Demo appointment">
     <h3>Demo appointment</h3>
     {!current ? <p role="status">Loading appointment…</p> : null}
@@ -33,6 +35,7 @@ export function ReferralAppointment({ referralID }: { referralID: string }) {
     {booking ? <>
       <p><strong><time dateTime={booking.starts_at}>{new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: booking.time_zone }).format(new Date(booking.starts_at))}</time></strong><br />Europe/Helsinki · 30 minutes</p>
       <p>{booking.service} · {booking.location}</p>
+      {toBooking >= 0 ? <p>Booked {formatWait(toBooking)} after the referral was received.</p> : null}
       <p>Booking reference <code>{booking.appointment_id}</code></p>
       <small>Shared synthetic schedule. This does not reserve a real clinic appointment.</small>
     </> : null}

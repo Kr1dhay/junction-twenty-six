@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CRMConsultation, CRMReferral } from "@edgecare/shared-types";
 import { EquityActions } from "./equity-actions";
+import { byLongestWaiting, formatWait, overdue, reviewAfterDays, waitingSummary, waitMs } from "../lib/waiting";
 
 const languages: Record<string, string> = { en: "English", fi: "Finnish", so: "Somali", ar: "Arabic", ru: "Russian", ku: "Kurdish" };
 const statusLabels = { open: "Awaiting verification", spent: "Verified · used", expired: "Expired" };
@@ -56,7 +57,10 @@ export function ReferralDashboard({ view = "referrals" }: { view?: "referrals" |
   const visible = referrals.filter(record => (!status || record.status === status) && (!risk || record.risk_band === risk)
     && (!specialty || record.recommended_specialty === specialty) && (!from || record.created_at.slice(0, 10) >= from)
     && (!to || record.created_at.slice(0, 10) <= to) && (!search || `${record.referral_id} ${record.free_text_summary} ${record.recommended_specialty} ${languages[record.language] ?? record.language}`.toLowerCase().includes(search.toLowerCase())))
-    .sort((a, b) => sort === "risk" ? b.risk_score - a.risk_score : b.created_at.localeCompare(a.created_at));
+    .sort((a, b) => sort === "risk" ? b.risk_score - a.risk_score : sort === "waiting" ? byLongestWaiting(a, b) : b.created_at.localeCompare(a.created_at));
+  // Waiting clocks advance with each successful poll, so they never run ahead of the data shown.
+  const now = lastSync ? Date.parse(lastSync) : 0;
+  const waiting = waitingSummary(referrals, now);
   const detail = visible.find(record => record.referral_id === selected) ?? visible[0];
   const activeFilters = Boolean(risk || specialty || from || to || search);
   const reset = () => { setRisk(""); setSpecialty(""); setFrom(""); setTo(""); setSearch(""); setStatus(""); };
@@ -82,19 +86,25 @@ export function ReferralDashboard({ view = "referrals" }: { view?: "referrals" |
         {view === "equity" ? <EquityActions standalone /> : <>
         <div className="page-heading"><div><p className="eyebrow">A CLEARER PATH TO CARE</p><h1>Anonymous referrals</h1><p>Every referral is a person’s next step.</p></div><button className="secondary-button refresh-button" onClick={() => setRefreshKey(value => value + 1)}><Icon kind="refresh" />Refresh</button></div>
         <div className="overview" aria-label="Referral overview"><div><span>Awaiting verification</span><strong>{referrals.filter(r => r.status === "open").length.toString().padStart(2, "0")}</strong><small>Ready for the next step</small></div><div><span>High priority · open</span><strong className="mulberry">{referrals.filter(r => r.status === "open" && r.risk_band === "high").length.toString().padStart(2, "0")}</strong><small>Review with clinical judgment</small></div><div><span>Verified referrals</span><strong>{referrals.filter(r => r.status === "spent").length.toString().padStart(2, "0")}</strong><small>Single-use commitment accepted</small></div><div className="sync-card"><span className={`sync-indicator ${error ? "offline" : ""}`} /><strong>{error ? "Connection interrupted" : loaded ? "Registry connected" : "Connecting to registry"}</strong><small>{lastSync ? `Updated ${time(lastSync)} UTC · every 2 seconds` : "Connecting to the local demo backend"}</small></div></div>
+        {loaded ? <dl className="waiting-strip" aria-label="Waiting times">
+          <div><dt>Longest open wait</dt><dd>{waiting.longestOpen === null ? "–" : formatWait(waiting.longestOpen)}</dd></div>
+          <div><dt>Median open wait</dt><dd>{waiting.medianOpen === null ? "–" : formatWait(waiting.medianOpen)}</dd></div>
+          <div className={waiting.overdue ? "alert" : undefined}><dt>Open over {reviewAfterDays} days</dt><dd>{waiting.overdue}{waiting.overdue ? <button className="text-button" onClick={() => { setStatus("open"); setSort("waiting"); }}>Review</button> : null}</dd></div>
+          <div><dt>Median time to verification</dt><dd>{waiting.medianToVerified === null ? "–" : formatWait(waiting.medianToVerified)}<small>{waiting.verified ? ` · ${waiting.verified} verified` : ""}</small></dd></div>
+        </dl> : null}
         <section className="filter-panel" aria-label="Filter referrals">
           <label className="search-field"><Icon kind="search" /><span className="sr-only">Search referrals</span><input type="search" placeholder="Search referral, specialty or summary" value={search} onChange={event => setSearch(event.target.value)} /></label>
           <div className="filters"><label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option><option value="open">Awaiting verification</option><option value="spent">Verified</option><option value="expired">Expired</option></select></label><label>Risk band<select value={risk} onChange={event => setRisk(event.target.value)}><option value="">All risk bands</option>{["high", "medium", "low"].map(value => <option key={value} value={value}>{title(value)}</option>)}</select></label><label>Specialty<select value={specialty} onChange={event => setSpecialty(event.target.value)}><option value="">All specialties</option>{[...new Set(referrals.map(record => record.recommended_specialty))].sort().map(value => <option key={value} value={value}>{title(value)}</option>)}</select></label><label>From · UTC<input type="date" value={from} max={to || undefined} onChange={event => setFrom(event.target.value)} /></label><label>To · UTC<input type="date" value={to} min={from || undefined} onChange={event => setTo(event.target.value)} /></label>{activeFilters ? <button className="text-button clear-filters" onClick={reset}>Clear filters</button> : null}</div>
           {invalidDates ? <p role="alert" className="field-error">Choose an end date on or after the start date.</p> : null}
         </section>
         {error ? <p className="error-banner" role="alert">{error}</p> : null}
-        <div className="referral-workspace"><section className="referral-list" aria-label="Referrals"><div className="list-heading"><h2>{status ? title(status === "spent" ? "verified referrals" : `${status} referrals`) : "All referrals"}<span>{visible.length}</span></h2><label className="sort-select"><span className="sr-only">Sort referrals</span><select value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest first</option><option value="risk">Highest risk first</option></select></label></div>
+        <div className="referral-workspace"><section className="referral-list" aria-label="Referrals"><div className="list-heading"><h2>{status ? title(status === "spent" ? "verified referrals" : `${status} referrals`) : "All referrals"}<span>{visible.length}</span></h2><label className="sort-select"><span className="sr-only">Sort referrals</span><select value={sort} onChange={event => setSort(event.target.value)}><option value="newest">Newest first</option><option value="waiting">Longest waiting first</option><option value="risk">Highest risk first</option></select></label></div>
           {!loaded && !error ? <div role="status" className="empty-state">Loading anonymous referrals…</div> : null}
           {loaded && !visible.length ? <div className="empty-state"><Icon kind="grid" /><h3>No referrals here yet</h3><p>{activeFilters || status ? "Adjust your filters to find a referral." : "New referrals appear here when a device syncs."}</p>{activeFilters || status ? <button className="secondary-button" onClick={reset}>Clear all filters</button> : null}</div> : null}
           {visible.map(record => <button key={record.referral_id} onClick={() => setSelected(record.referral_id)} aria-pressed={detail?.referral_id === record.referral_id} className={`referral-row ${detail?.referral_id === record.referral_id ? "selected" : ""}`}>
-            <span className="row-top"><span className="referral-id">EC–{record.referral_id.slice(-8).toUpperCase()}</span><span className={`risk-badge ${record.risk_band}`}>{title(record.risk_band)} risk</span></span><strong className="specialty-title">{title(record.recommended_specialty)}</strong><span className="row-summary">{record.free_text_summary}</span><span className="row-meta"><span>{languages[record.language] ?? record.language} <span aria-hidden="true">·</span> {date(record.created_at)}</span><span className={`status-label ${record.status}`}><i aria-hidden="true" />{statusLabels[record.status]}</span></span><span className="row-chevron"><Icon kind="arrow" /></span>
+            <span className="row-top"><span className="referral-id">EC–{record.referral_id.slice(-8).toUpperCase()}</span><span className={`risk-badge ${record.risk_band}`}>{title(record.risk_band)} risk</span></span><strong className="specialty-title">{title(record.recommended_specialty)}</strong><span className="row-summary">{record.free_text_summary}</span><span className="row-meta"><span>{languages[record.language] ?? record.language} <span aria-hidden="true">·</span> {date(record.created_at)}<WaitChip record={record} now={now} /></span><span className={`status-label ${record.status}`}><i aria-hidden="true" />{statusLabels[record.status]}</span></span><span className="row-chevron"><Icon kind="arrow" /></span>
           </button>)}
-        </section><aside className="detail-panel" aria-label="Selected referral details">{detail ? <ReferralDetail detail={detail} /> : <div className="empty-state"><Icon kind="shield" /><h2>A private path to care</h2><p>Select a referral to review its clinical summary and verification history.</p></div>}</aside></div>
+        </section><aside className="detail-panel" aria-label="Selected referral details">{detail ? <ReferralDetail detail={detail} now={now} /> : <div className="empty-state"><Icon kind="shield" /><h2>A private path to care</h2><p>Select a referral to review its clinical summary and verification history.</p></div>}</aside></div>
         </>}
         <footer className="workspace-footer"><Icon kind="shield" /><span>Synthetic data only · Demo triage is unvalidated and requires clinician review.</span><span>Local demo registry · UTC</span></footer>
       </main>
@@ -102,10 +112,18 @@ export function ReferralDashboard({ view = "referrals" }: { view?: "referrals" |
   </div>;
 }
 
-function ReferralDetail({ detail }: { detail: CRMReferral }) {
-  return <><div className="detail-heading"><p className="eyebrow">REFERRAL OVERVIEW</p><h2>{title(detail.recommended_specialty)}</h2><span className={`status-label ${detail.status}`}><i aria-hidden="true" />{statusLabels[detail.status]}</span></div><div className="detail-content"><div className="detail-id"><span>Anonymous referral</span><code>{detail.referral_id}</code></div><div className="detail-facts"><div><span>Preferred language</span><strong>{languages[detail.language] ?? detail.language}</strong></div><div><span>Created</span><strong>{date(detail.created_at)}</strong></div></div>
+function WaitChip({ record, now }: { record: CRMReferral; now: number }) {
+  const wait = waitMs(record, now);
+  if (wait === null) return null;
+  const late = overdue(record, now);
+  return <span className={`wait-chip ${late ? "overdue" : ""}`}>{record.status === "open" ? `${late ? "Overdue · waiting" : "Waiting"} ${formatWait(wait)}` : `Verified after ${formatWait(wait)}`}</span>;
+}
+
+function ReferralDetail({ detail, now }: { detail: CRMReferral; now: number }) {
+  const wait = waitMs(detail, now);
+  return <><div className="detail-heading"><p className="eyebrow">REFERRAL OVERVIEW</p><h2>{title(detail.recommended_specialty)}</h2><span className={`status-label ${detail.status}`}><i aria-hidden="true" />{statusLabels[detail.status]}</span></div><div className="detail-content"><div className="detail-id"><span>Anonymous referral</span><code>{detail.referral_id}</code></div><div className="detail-facts"><div><span>Preferred language</span><strong>{languages[detail.language] ?? detail.language}</strong></div><div><span>Created</span><strong>{date(detail.created_at)}</strong></div>{wait !== null ? <div><span>{detail.status === "open" ? "Waiting" : "Time to verification"}</span><strong>{formatWait(wait)}{overdue(detail, now) ? ` · over ${reviewAfterDays} days` : ""}</strong></div> : null}</div>
     <section className="detail-section"><h3>Clinical summary</h3><p>{detail.free_text_summary}</p><div className={`risk-note ${detail.risk_band}`}><span className={`risk-badge ${detail.risk_band}`}>{title(detail.risk_band)} risk</span><strong>{detail.risk_score}<span>/100</span></strong><small>Unvalidated demo score. Use clinical judgment.</small></div></section>
-    <ReferralAppointment referralID={detail.referral_id} />
+    <ReferralAppointment referralID={detail.referral_id} receivedAt={detail.created_at} />
     <section className="detail-section"><h3>Patient guidance</h3><p lang={detail.language} dir="auto">{detail.patient_language_summary}</p></section>
     <Consultations referralID={detail.referral_id} />
     <section className="detail-section"><h3>Supporting information</h3><details open={detail.letter_scan.present}><summary>Screening or referral letter <span>{detail.letter_scan.present ? "Available" : "Not provided"}</span></summary><p>{detail.letter_scan.extracted_text ?? "No letter text was included with this referral."}</p></details><details open={detail.lesion_photo.present}><summary>Skin observation <span>{detail.lesion_photo.present ? "Available" : "Not provided"}</span></summary><p>{detail.lesion_photo.assessment ?? "No skin assessment was included with this referral."}</p></details></section>

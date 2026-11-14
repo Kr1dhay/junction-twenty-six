@@ -1,0 +1,989 @@
+{
+ "generated_at": "2026-11-14T17:54:15.184Z",
+ "source": "THL Sotkanet open API",
+ "source_url": "https://sotkanet.fi/",
+ "national_region_id": 658,
+ "regions": [
+  {
+   "id": 956,
+   "code": "91",
+   "name": "Åland",
+   "full_name": "Åland",
+   "population": 30836
+  },
+  {
+   "id": 965,
+   "code": "15",
+   "name": "Central Finland",
+   "full_name": "Central Finland wellbeing services county",
+   "population": 273731
+  },
+  {
+   "id": 964,
+   "code": "18",
+   "name": "Central Ostrobothnia",
+   "full_name": "Central Ostrobothnia wellbeing services county",
+   "population": 67498
+  },
+  {
+   "id": 966,
+   "code": "02",
+   "name": "Central Uusimaa",
+   "full_name": "Central Uusimaa wellbeing services county",
+   "population": 207551
+  },
+  {
+   "id": 961,
+   "code": "01",
+   "name": "East Uusimaa",
+   "full_name": "East Uusimaa wellbeing services county",
+   "population": 99584
+  },
+  {
+   "id": 960,
+   "code": "90",
+   "name": "Helsinki",
+   "full_name": "City of Helsinki",
+   "population": 694392
+  },
+  {
+   "id": 962,
+   "code": "20",
+   "name": "Kainuu",
+   "full_name": "Kainuu wellbeing services county",
+   "population": 69193
+  },
+  {
+   "id": 963,
+   "code": "07",
+   "name": "Kanta-Häme",
+   "full_name": "Kanta-Häme wellbeing services county",
+   "population": 168957
+  },
+  {
+   "id": 967,
+   "code": "10",
+   "name": "Kymenlaakso",
+   "full_name": "Kymenlaakso wellbeing services county",
+   "population": 156198
+  },
+  {
+   "id": 968,
+   "code": "21",
+   "name": "Lapland",
+   "full_name": "Lapland wellbeing services county",
+   "population": 176215
+  },
+  {
+   "id": 972,
+   "code": "14",
+   "name": "North Karelia",
+   "full_name": "North Karelia wellbeing services county",
+   "population": 161418
+  },
+  {
+   "id": 973,
+   "code": "19",
+   "name": "North Ostrobothnia",
+   "full_name": "North Ostrobothnia wellbeing services county",
+   "population": 417939
+  },
+  {
+   "id": 974,
+   "code": "13",
+   "name": "North Savo",
+   "full_name": "North Savo wellbeing services county",
+   "population": 248512
+  },
+  {
+   "id": 971,
+   "code": "17",
+   "name": "Ostrobothnia",
+   "full_name": "Ostrobothnia wellbeing services county",
+   "population": 179555
+  },
+  {
+   "id": 975,
+   "code": "09",
+   "name": "Päijät-Häme",
+   "full_name": "Päijät-Häme wellbeing services county",
+   "population": 204522
+  },
+  {
+   "id": 970,
+   "code": "08",
+   "name": "Pirkanmaa",
+   "full_name": "Pirkanmaa wellbeing services county",
+   "population": 548910
+  },
+  {
+   "id": 976,
+   "code": "06",
+   "name": "Satakunta",
+   "full_name": "Satakunta wellbeing services county",
+   "population": 210112
+  },
+  {
+   "id": 957,
+   "code": "11",
+   "name": "South Karelia",
+   "full_name": "South Karelia wellbeing services county",
+   "population": 124238
+  },
+  {
+   "id": 958,
+   "code": "16",
+   "name": "South Ostrobothnia",
+   "full_name": "South Ostrobothnia wellbeing services county",
+   "population": 189474
+  },
+  {
+   "id": 959,
+   "code": "12",
+   "name": "South Savo",
+   "full_name": "South Savo wellbeing services county",
+   "population": 128144
+  },
+  {
+   "id": 978,
+   "code": "05",
+   "name": "Southwest Finland",
+   "full_name": "Southwest Finland wellbeing services county",
+   "population": 497800
+  },
+  {
+   "id": 977,
+   "code": "04",
+   "name": "Vantaa and Kerava",
+   "full_name": "Vantaa and Kerava wellbeing services county",
+   "population": 291723
+  },
+  {
+   "id": 969,
+   "code": "03",
+   "name": "West Uusimaa",
+   "full_name": "West Uusimaa wellbeing services county",
+   "population": 506379
+  }
+ ],
+ "population_year": 2025,
+ "indicators": {
+  "13": {
+   "id": 13,
+   "title": "Referrals for specialised health care received processed within 3 days, % of referrals received",
+   "organization": "Finnish institute for Health and Welfare (THL)",
+   "updated": "2026-06-05",
+   "year": 2025,
+   "national": {
+    "value": 76.8,
+    "count": 1069092
+   },
+   "values": {
+    "957": {
+     "value": 88.1,
+     "count": 39918
+    },
+    "958": {
+     "value": 68.9,
+     "count": 43452
+    },
+    "959": {
+     "value": 78.1,
+     "count": 34187
+    },
+    "960": {
+     "value": 76.8,
+     "count": 9941
+    },
+    "962": {
+     "value": 75.2,
+     "count": 18728
+    },
+    "963": {
+     "value": 88.7,
+     "count": 53143
+    },
+    "964": {
+     "value": 71.7,
+     "count": 19874
+    },
+    "965": {
+     "value": 78.1,
+     "count": 56378
+    },
+    "967": {
+     "value": 82,
+     "count": 40101
+    },
+    "968": {
+     "value": 80.2,
+     "count": 30444
+    },
+    "970": {
+     "value": 72.4,
+     "count": 92794
+    },
+    "971": {
+     "value": 76.5,
+     "count": 36316
+    },
+    "972": {
+     "value": 76.9,
+     "count": 30524
+    },
+    "973": {
+     "value": 78,
+     "count": 79713
+    },
+    "974": {
+     "value": 71.5,
+     "count": 52814
+    },
+    "975": {
+     "value": 85.3,
+     "count": 47770
+    },
+    "976": {
+     "value": 77.7,
+     "count": 48639
+    },
+    "978": {
+     "value": 78.2,
+     "count": 86825
+    }
+   }
+  },
+  "3620": {
+   "id": 3620,
+   "title": "Proportion of women invited to cervical cancer screening (smear test) who attended, %",
+   "organization": "Finnish Cancer Registry",
+   "updated": "2026-06-12",
+   "year": 2024,
+   "national": {
+    "value": 73.4,
+    "count": 224530
+   },
+   "values": {
+    "956": {
+     "value": 80.2,
+     "count": 1274
+    },
+    "957": {
+     "value": 75.8,
+     "count": 5124
+    },
+    "958": {
+     "value": 82.3,
+     "count": 7644
+    },
+    "959": {
+     "value": 82.3,
+     "count": 5192
+    },
+    "960": {
+     "value": 71.4,
+     "count": 33065
+    },
+    "961": {
+     "value": 75.7,
+     "count": 4299
+    },
+    "962": {
+     "value": 78.5,
+     "count": 2632
+    },
+    "963": {
+     "value": 70.4,
+     "count": 6074
+    },
+    "964": {
+     "value": 69.2,
+     "count": 2200
+    },
+    "965": {
+     "value": 70.7,
+     "count": 9629
+    },
+    "966": {
+     "value": 75.9,
+     "count": 9175
+    },
+    "967": {
+     "value": 76.5,
+     "count": 6718
+    },
+    "968": {
+     "value": 79.9,
+     "count": 7005
+    },
+    "969": {
+     "value": 73.6,
+     "count": 21947
+    },
+    "970": {
+     "value": 71.5,
+     "count": 20096
+    },
+    "971": {
+     "value": 72.4,
+     "count": 6050
+    },
+    "972": {
+     "value": 68,
+     "count": 5379
+    },
+    "973": {
+     "value": 73.6,
+     "count": 14631
+    },
+    "974": {
+     "value": 70,
+     "count": 8781
+    },
+    "975": {
+     "value": 68.9,
+     "count": 7163
+    },
+    "976": {
+     "value": 71.3,
+     "count": 8099
+    },
+    "977": {
+     "value": 70.7,
+     "count": 12611
+    },
+    "978": {
+     "value": 77.6,
+     "count": 19742
+    }
+   }
+  },
+  "3621": {
+   "id": 3621,
+   "title": "Proportion of women invited to breast cancer screening (mammography) who attended, %",
+   "organization": "Finnish Cancer Registry",
+   "updated": "2026-06-12",
+   "year": 2024,
+   "national": {
+    "value": 81.6,
+    "count": 281369
+   },
+   "values": {
+    "957": {
+     "value": 83.2,
+     "count": 7047
+    },
+    "958": {
+     "value": 85,
+     "count": 10069
+    },
+    "959": {
+     "value": 82.2,
+     "count": 7741
+    },
+    "960": {
+     "value": 74.3,
+     "count": 28686
+    },
+    "961": {
+     "value": 79.8,
+     "count": 5546
+    },
+    "962": {
+     "value": 84.1,
+     "count": 4033
+    },
+    "963": {
+     "value": 83.4,
+     "count": 9467
+    },
+    "964": {
+     "value": 85.4,
+     "count": 3329
+    },
+    "965": {
+     "value": 85.1,
+     "count": 14073
+    },
+    "966": {
+     "value": 80.5,
+     "count": 10944
+    },
+    "967": {
+     "value": 82,
+     "count": 9142
+    },
+    "968": {
+     "value": 83.8,
+     "count": 9678
+    },
+    "969": {
+     "value": 76.1,
+     "count": 22860
+    },
+    "970": {
+     "value": 83.5,
+     "count": 26449
+    },
+    "971": {
+     "value": 84.9,
+     "count": 8487
+    },
+    "972": {
+     "value": 84.2,
+     "count": 8940
+    },
+    "973": {
+     "value": 85.6,
+     "count": 20168
+    },
+    "974": {
+     "value": 85.1,
+     "count": 13785
+    },
+    "975": {
+     "value": 81.8,
+     "count": 11313
+    },
+    "976": {
+     "value": 84.9,
+     "count": 11958
+    },
+    "977": {
+     "value": 76.7,
+     "count": 12323
+    },
+    "978": {
+     "value": 82.7,
+     "count": 25331
+    }
+   }
+  },
+  "3625": {
+   "id": 3625,
+   "title": "Five-year relative survival rate of breast cancer patients, %",
+   "organization": "Finnish Cancer Registry",
+   "updated": "2026-06-12",
+   "year": 2024,
+   "national": {
+    "value": 92
+   },
+   "values": {
+    "956": {
+     "value": 84
+    },
+    "957": {
+     "value": 92
+    },
+    "958": {
+     "value": 93
+    },
+    "959": {
+     "value": 91
+    },
+    "960": {
+     "value": 91
+    },
+    "961": {
+     "value": 90
+    },
+    "962": {
+     "value": 89
+    },
+    "963": {
+     "value": 92
+    },
+    "964": {
+     "value": 91
+    },
+    "965": {
+     "value": 92
+    },
+    "966": {
+     "value": 92
+    },
+    "967": {
+     "value": 93
+    },
+    "968": {
+     "value": 92
+    },
+    "969": {
+     "value": 92
+    },
+    "970": {
+     "value": 93
+    },
+    "971": {
+     "value": 92
+    },
+    "972": {
+     "value": 90
+    },
+    "973": {
+     "value": 90
+    },
+    "974": {
+     "value": 93
+    },
+    "975": {
+     "value": 91
+    },
+    "976": {
+     "value": 92
+    },
+    "977": {
+     "value": 94
+    },
+    "978": {
+     "value": 94
+    }
+   }
+  },
+  "3627": {
+   "id": 3627,
+   "title": "Five-year relative survival rate of bowel cancer patients, %",
+   "organization": "Finnish Cancer Registry",
+   "updated": "2026-06-12",
+   "year": 2024,
+   "national": {
+    "value": 68
+   },
+   "values": {
+    "956": {
+     "value": 54
+    },
+    "957": {
+     "value": 65
+    },
+    "958": {
+     "value": 65
+    },
+    "959": {
+     "value": 72
+    },
+    "960": {
+     "value": 71
+    },
+    "961": {
+     "value": 72
+    },
+    "962": {
+     "value": 64
+    },
+    "963": {
+     "value": 66
+    },
+    "964": {
+     "value": 70
+    },
+    "965": {
+     "value": 72
+    },
+    "966": {
+     "value": 74
+    },
+    "967": {
+     "value": 70
+    },
+    "968": {
+     "value": 73
+    },
+    "969": {
+     "value": 70
+    },
+    "970": {
+     "value": 66
+    },
+    "971": {
+     "value": 71
+    },
+    "972": {
+     "value": 66
+    },
+    "973": {
+     "value": 69
+    },
+    "974": {
+     "value": 64
+    },
+    "975": {
+     "value": 63
+    },
+    "976": {
+     "value": 64
+    },
+    "977": {
+     "value": 73
+    },
+    "978": {
+     "value": 67
+    }
+   }
+  },
+  "5201": {
+   "id": 5201,
+   "title": "Bad travel connections hampered access to care, (%) of persons who used health services (2018-)",
+   "organization": "Finnish institute for Health and Welfare (THL)",
+   "updated": "2025-05-14",
+   "year": 2024,
+   "national": {
+    "value": 27.5
+   },
+   "values": {
+    "956": {
+     "value": 10.7
+    },
+    "957": {
+     "value": 28.1
+    },
+    "958": {
+     "value": 30.2
+    },
+    "959": {
+     "value": 27.5
+    },
+    "960": {
+     "value": 23.2
+    },
+    "961": {
+     "value": 30.2
+    },
+    "962": {
+     "value": 27.8
+    },
+    "963": {
+     "value": 26.4
+    },
+    "964": {
+     "value": 20.1
+    },
+    "965": {
+     "value": 29.1
+    },
+    "966": {
+     "value": 35.5
+    },
+    "967": {
+     "value": 27.4
+    },
+    "968": {
+     "value": 26.9
+    },
+    "969": {
+     "value": 26.6
+    },
+    "970": {
+     "value": 26.5
+    },
+    "971": {
+     "value": 24.8
+    },
+    "972": {
+     "value": 34.5
+    },
+    "973": {
+     "value": 30.9
+    },
+    "974": {
+     "value": 26.9
+    },
+    "975": {
+     "value": 25.5
+    },
+    "976": {
+     "value": 31.5
+    },
+    "977": {
+     "value": 28.7
+    },
+    "978": {
+     "value": 25.9
+    }
+   }
+  },
+  "5208": {
+   "id": 5208,
+   "title": "High client fees hampered access to care, (%) of persons who used health services (2018-)",
+   "organization": "Finnish institute for Health and Welfare (THL)",
+   "updated": "2025-05-14",
+   "year": 2024,
+   "national": {
+    "value": 36.9
+   },
+   "values": {
+    "956": {
+     "value": 18.9
+    },
+    "957": {
+     "value": 35.8
+    },
+    "958": {
+     "value": 39.1
+    },
+    "959": {
+     "value": 41.3
+    },
+    "960": {
+     "value": 28.5
+    },
+    "961": {
+     "value": 34.1
+    },
+    "962": {
+     "value": 46.5
+    },
+    "963": {
+     "value": 34.5
+    },
+    "964": {
+     "value": 36.6
+    },
+    "965": {
+     "value": 40.6
+    },
+    "966": {
+     "value": 34.8
+    },
+    "967": {
+     "value": 39.9
+    },
+    "968": {
+     "value": 41.2
+    },
+    "969": {
+     "value": 33.4
+    },
+    "970": {
+     "value": 38.4
+    },
+    "971": {
+     "value": 33.3
+    },
+    "972": {
+     "value": 44.5
+    },
+    "973": {
+     "value": 38.1
+    },
+    "974": {
+     "value": 38.8
+    },
+    "975": {
+     "value": 41
+    },
+    "976": {
+     "value": 44.1
+    },
+    "977": {
+     "value": 34
+    },
+    "978": {
+     "value": 38.2
+    }
+   }
+  },
+  "6103": {
+   "id": 6103,
+   "title": "Proportion of invited to colorectal cancer screening who attended, %",
+   "organization": "Finnish Cancer Registry",
+   "updated": "2026-06-12",
+   "year": 2024,
+   "national": {
+    "value": 73.5,
+    "count": 309871
+   },
+   "values": {
+    "957": {
+     "value": 74,
+     "count": 8241
+    },
+    "958": {
+     "value": 74.6,
+     "count": 11899
+    },
+    "959": {
+     "value": 76.9,
+     "count": 10093
+    },
+    "960": {
+     "value": 69.6,
+     "count": 29226
+    },
+    "961": {
+     "value": 72,
+     "count": 5679
+    },
+    "962": {
+     "value": 76.5,
+     "count": 5362
+    },
+    "963": {
+     "value": 74.3,
+     "count": 10705
+    },
+    "964": {
+     "value": 73.3,
+     "count": 3612
+    },
+    "965": {
+     "value": 76.5,
+     "count": 16219
+    },
+    "966": {
+     "value": 74,
+     "count": 11236
+    },
+    "967": {
+     "value": 70,
+     "count": 10098
+    },
+    "968": {
+     "value": 73.7,
+     "count": 11925
+    },
+    "969": {
+     "value": 71.5,
+     "count": 22976
+    },
+    "970": {
+     "value": 74.3,
+     "count": 28058
+    },
+    "971": {
+     "value": 75.9,
+     "count": 9334
+    },
+    "972": {
+     "value": 73.2,
+     "count": 10833
+    },
+    "973": {
+     "value": 75.6,
+     "count": 22423
+    },
+    "974": {
+     "value": 75.4,
+     "count": 16465
+    },
+    "975": {
+     "value": 75.2,
+     "count": 12996
+    },
+    "976": {
+     "value": 72.6,
+     "count": 13115
+    },
+    "977": {
+     "value": 71.3,
+     "count": 12433
+    },
+    "978": {
+     "value": 73.5,
+     "count": 26943
+    }
+   }
+  },
+  "6411": {
+   "id": 6411,
+   "title": "Waiting time for elective outpatient medical visit (physician) in primary health care exceeds 7 days from assessment of the need for treatment, % appointments kept",
+   "organization": "Finnish institute for Health and Welfare (THL)",
+   "updated": "2026-05-13",
+   "year": 2025,
+   "national": {
+    "value": 54.7,
+    "count": 649315
+   },
+   "values": {
+    "957": {
+     "value": 60.3,
+     "count": 5744
+    },
+    "958": {
+     "value": 67.8,
+     "count": 10605
+    },
+    "959": {
+     "value": 69.7,
+     "count": 4361
+    },
+    "960": {
+     "value": 75.9,
+     "count": 64137
+    },
+    "961": {
+     "value": 51.8,
+     "count": 9802
+    },
+    "962": {
+     "value": 38.4,
+     "count": 984
+    },
+    "963": {
+     "value": 65.6,
+     "count": 6241
+    },
+    "964": {
+     "value": 52.9,
+     "count": 4198
+    },
+    "965": {
+     "value": 73.5,
+     "count": 20207
+    },
+    "966": {
+     "value": 46.7,
+     "count": 32864
+    },
+    "967": {
+     "value": 61.8,
+     "count": 8969
+    },
+    "968": {
+     "value": 48.6,
+     "count": 24079
+    },
+    "969": {
+     "value": 40,
+     "count": 47771
+    },
+    "970": {
+     "value": 45.8,
+     "count": 126013
+    },
+    "971": {
+     "value": 56.7,
+     "count": 4811
+    },
+    "972": {
+     "value": 59.3,
+     "count": 15688
+    },
+    "973": {
+     "value": 63.3,
+     "count": 22032
+    },
+    "974": {
+     "value": 60.5,
+     "count": 55585
+    },
+    "975": {
+     "value": 32.7,
+     "count": 7691
+    },
+    "976": {
+     "value": 56.6,
+     "count": 12986
+    },
+    "977": {
+     "value": 85.4,
+     "count": 29877
+    },
+    "978": {
+     "value": 57.9,
+     "count": 134670
+    }
+   }
+  }
+ }
+}
