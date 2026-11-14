@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CRMConsultation, CRMReferral } from "@edgecare/shared-types";
 import { EquityActions } from "./equity-actions";
+import { Edi } from "./edi";
 import { byLongestWaiting, formatWait, overdue, reviewAfterDays, waitingSummary, waitMs } from "../lib/waiting";
 
 const languages: Record<string, string> = { en: "English", fi: "Finnish", so: "Somali", ar: "Arabic", ru: "Russian", ku: "Kurdish" };
@@ -67,17 +68,17 @@ export function ReferralDashboard({ view = "referrals" }: { view?: "referrals" |
   return <div className="workspace">
     <a className="skip-link" href="#workspace-content">Skip to main content</a>
     <aside className="sidebar" aria-label="Workspace navigation">
-      <a className="wordmark" href="/"><span className="brand-mark" aria-hidden="true">e<span>·</span></span>edge-care</a>
+      <a className="wordmark" href="/" aria-label="Edge-Care home"><Edi /><span>Edge-Care</span></a>
       <div className="workspace-label">CLINICAL WORKSPACE</div>
       {view === "equity" ? <nav aria-label="Referrals"><a className="nav-item" href="/"><Icon kind="grid" />All referrals</a></nav> : <nav aria-label="Referral status"><button className={`nav-item ${status === "" ? "active" : ""}`} onClick={() => setStatus("")} aria-current={status === "" ? "page" : undefined}><Icon kind="grid" />All referrals<span>{referrals.length}</span></button>
         {(["open", "spent", "expired"] as const).map(value => <button key={value} className={`nav-item ${status === value ? "active" : ""}`} onClick={() => setStatus(value)} aria-current={status === value ? "page" : undefined}><i className={`status-dot ${value}`} aria-hidden="true" />{value === "open" ? "Awaiting verification" : value === "spent" ? "Verified referrals" : "Expired"}<span>{referrals.filter(record => record.status === value).length}</span></button>)}
       </nav>}
       <a className={`nav-item equity-nav ${view === "equity" ? "active" : ""}`} href="/equity-actions" aria-label="Equity actions" title="Equity actions" aria-current={view === "equity" ? "page" : undefined}><Icon kind="grid" />Equity actions</a>
       <div className="sidebar-note"><Icon kind="shield" /><strong>Anonymous by design</strong><p>No names. No contact details. Only what is needed to continue care.</p></div>
-      <div className="session"><div className="avatar" aria-hidden="true">EC</div><div><strong>Demo clinician</strong><small>Synthetic workspace</small></div></div>
+      <div className="session"><div className="avatar" aria-hidden="true">EC</div><div><strong>Demo clinician</strong><small>Demo workspace</small></div></div>
     </aside>
     <div className="workspace-body">
-      <header className="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{view === "equity" ? "Equity actions" : "Referrals"}</strong></span><span className="demo-tag">SYNTHETIC DEMO</span></header>
+      <header className="topbar"><span>Workspace <span aria-hidden="true">/</span> <strong>{view === "equity" ? "Equity actions" : "Referrals"}</strong></span><span className="demo-tag">DEMO</span></header>
       <nav className="mobile-workspace-nav" aria-label="Workspace pages">
         <a href="/" aria-current={view === "referrals" ? "page" : undefined}>All referrals</a>
         <a href="/equity-actions" aria-current={view === "equity" ? "page" : undefined}>Equity actions</a>
@@ -106,7 +107,7 @@ export function ReferralDashboard({ view = "referrals" }: { view?: "referrals" |
           </button>)}
         </section><aside className="detail-panel" aria-label="Selected referral details">{detail ? <ReferralDetail detail={detail} now={now} /> : <div className="empty-state"><Icon kind="shield" /><h2>A private path to care</h2><p>Select a referral to review its clinical summary and verification history.</p></div>}</aside></div>
         </>}
-        <footer className="workspace-footer"><Icon kind="shield" /><span>Synthetic data only · Demo triage is unvalidated and requires clinician review.</span><span>Local demo registry · UTC</span></footer>
+        <footer className="workspace-footer"><Icon kind="shield" /><span>Demo triage is unvalidated and requires clinician review.</span><span>Local demo registry · UTC</span></footer>
       </main>
     </div>
   </div>;

@@ -12,30 +12,30 @@
 .summary strong { display: block; color: var(--mulberry); font-size: 28px; line-height: 1.25; font-variant-numeric: tabular-nums; }
 .pathway { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; list-style: none; margin: 24px 0 16px; padding: 0; }
 .pathway li { min-width: 0; }
-.stageLink { display: flex; flex-direction: column; height: 100%; padding: 18px; border: 1px solid #e3e8e7; border-radius: 12px; background: #fafbfb; }
+.stageLink { display: flex; flex-direction: column; height: 100%; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 a.stageLink:hover { border-color: var(--mulberry); background: var(--rose); }
-.behind .stageLink { border-color: #eadce4; background: #fdf9fb; }
+.behind .stageLink { border-color: var(--blush-line); background: var(--blush-soft); }
 .furthest .stageLink { border: 2px solid var(--mulberry); background: var(--rose); padding: 17px; }
 .stageTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--mulberry); }
-.step { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border: 1px solid #e7d5df; border-radius: 50%; font-size: 12px; font-weight: 600; background: #fff; }
-.stageStatus { font-size: 11px; font-weight: 600; letter-spacing: .2px; color: #465d59; text-align: right; }
+.step { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border: 1px solid var(--blush-line); border-radius: 50%; font-size: 12px; font-weight: 600; background: #fff; }
+.stageStatus { font-size: 11px; font-weight: 600; letter-spacing: .2px; color: var(--muted-strong); text-align: right; }
 .behind .stageStatus { color: var(--mulberry); }
-.furthest .stageStatus { color: #fff; background: var(--mulberry); padding: 3px 8px; border-radius: 4px; }
+.furthest .stageStatus { color: #fff; background: var(--mulberry); padding: 4px 10px; border-radius: 999px; }
 .stageName { font-size: 15px; font-weight: 600; margin-top: 16px; }
 .stageMetric { display: grid; gap: 4px; margin: 8px 0 16px; }
-.stageMetric strong { font-size: 32px; font-weight: 600; color: #3c4242; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.stageMetric strong { font-size: 32px; font-weight: 600; color: var(--text); line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
 .behind .stageMetric strong, .furthest .stageMetric strong { color: var(--mulberry); }
 .stageMetric > span { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.stageAction { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); border-top: 1px solid #e3e8e7; padding-top: 12px; margin-top: auto; }
-a.stageLink .stageAction { color: var(--mulberry); border-top-color: #eadce4; }
+.stageAction { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 12px; margin-top: auto; }
+a.stageLink .stageAction { color: var(--mulberry); border-top-color: var(--blush-line); }
 .overview .overviewNote { font-size: 12px; color: var(--muted); }
 
-.brief { margin: 0 0 24px; padding: 28px; border-radius: 16px; background: #fff; border: 1px solid var(--border); border-top: 4px solid var(--mulberry); }
+.brief { margin: 0 0 24px; padding: 28px; border-radius: 16px; background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--magenta); box-shadow: var(--shadow); }
 .briefHeading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
 .briefHeading h3 { font-size: 23px; margin-top: 8px; letter-spacing: -.02em; }
 .briefTime { flex-shrink: 0; font-size: 12px; color: var(--muted); padding-top: 4px; }
 .briefSteps { list-style: none; counter-reset: brief; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 24px 0 0; padding: 0; }
-.briefSteps li { counter-increment: brief; min-width: 0; padding-top: 16px; border-top: 1px solid #eadce4; }
+.briefSteps li { counter-increment: brief; min-width: 0; padding-top: 16px; border-top: 1px solid var(--blush-line); }
 .briefSteps li > span { display: block; font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--mulberry); margin-bottom: 8px; }
 .briefSteps li > span::before { content: counter(brief) " · "; }
 .briefSteps p { font-size: 17px; line-height: 1.55; overflow-wrap: anywhere; }
@@ -43,7 +43,7 @@ a.stageLink .stageAction { color: var(--mulberry); border-top-color: #eadce4; }
 .briefActions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .briefActions button { min-height: 48px; }
 
-.timing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px 32px; align-items: center; margin: 0 0 24px; padding: 20px 28px; border: 1px dashed #c9d2d0; border-radius: 12px; background: #fff; }
+.timing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px 32px; align-items: center; margin: 0 0 24px; padding: 20px 28px; border: 1px dashed var(--platinum); border-radius: 12px; background: #fff; }
 .timing > div p:last-child { font-size: 14px; color: var(--muted); margin-top: 6px; }
 .timing dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
 .timing dt { font-size: 12px; color: var(--muted); line-height: 1.4; }
@@ -59,7 +59,7 @@ a.stageLink .stageAction { color: var(--mulberry); border-top-color: #eadce4; }
 .ranking .rankingNote { font-size: 13px; color: var(--muted); margin: 12px 0 0; max-width: 820px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 16px 0 8px; font-size: 12px; color: var(--muted); }
 .legend span::before { content: ""; display: inline-block; vertical-align: middle; height: 14px; margin-right: 8px; }
-.legendNational::before { border-left: 2px solid #3c4242; }
+.legendNational::before { border-left: 2px solid var(--text); }
 .legendTarget::before { border-left: 2px dashed var(--magenta); }
 .legendAxis::before { display: none; }
 .rankList { list-style: none; margin: 0; padding: 0; }
@@ -68,16 +68,16 @@ a.stageLink .stageAction { color: var(--mulberry); border-top-color: #eadce4; }
 .rankRow[aria-pressed="true"] { background: var(--rose); font-weight: 600; }
 .rankNumber { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
 .rankName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rankTrack { position: relative; height: 20px; border-bottom: 1px solid #ebefee; }
+.rankTrack { position: relative; height: 20px; border-bottom: 1px solid var(--hairline); }
 .nationalLine, .targetLine, .dot { position: absolute; top: 0; }
-.nationalLine { height: 100%; border-left: 2px solid #3c4242; margin-left: -1px; }
+.nationalLine { height: 100%; border-left: 2px solid var(--text); margin-left: -1px; }
 .targetLine { height: 100%; border-left: 2px dashed var(--magenta); margin-left: -1px; }
-.dot { top: 4px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #687f7b; box-shadow: 0 0 0 2px #fff; }
+.dot { top: 4px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--ref); box-shadow: 0 0 0 2px #fff; }
 .rankRow[aria-pressed="true"] .dot { background: var(--mulberry); box-shadow: 0 0 0 2px var(--rose); }
 .rankValue { font-variant-numeric: tabular-nums; text-align: right; }
 
 .card { scroll-margin-top: 24px; }
-.comparison { margin: 0 0 24px; padding: 18px; background: var(--surface); border: 1px solid #ebefee; border-radius: 10px; }
+.comparison { margin: 0 0 24px; padding: 18px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; }
 .comparison figcaption { font-size: 13px; font-weight: 600; }
 .comparison figcaption > span { display: block; font-size: 11px; font-weight: 400; color: var(--muted); margin-top: 2px; }
 .rates { margin: 16px 0 0; }
@@ -87,16 +87,16 @@ a.stageLink .stageAction { color: var(--mulberry); border-top-color: #eadce4; }
 .rates dd { margin: 0; }
 .rateValue { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 4px 0 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rateValue strong { font-size: 19px; font-weight: 600; color: var(--mulberry); line-height: 1.2; }
-.track { position: relative; height: 12px; border-radius: 3px; background: #e5e9e8; overflow: hidden; }
+.track { position: relative; height: 12px; border-radius: 999px; background: var(--border); overflow: hidden; }
 .targetTick { position: absolute; top: 0; height: 100%; border-left: 2px dashed var(--magenta); margin-left: -1px; }
-.track > span { display: block; height: 100%; background: var(--mulberry); border-radius: 3px; }
-.reference .track > span { background: #687f7b; }
-.reference .rateValue strong { color: #465d59; }
+.track > span { display: block; height: 100%; background: var(--mulberry); border-radius: 999px; }
+.reference .track > span { background: var(--ref); }
+.reference .rateValue strong { color: var(--muted-strong); }
 .axis { display: flex; justify-content: space-between; margin-top: 10px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rates .rankLine { margin-top: 8px; font-size: 12px; color: var(--muted); }
 .rates .noData { font-size: 13px; color: var(--muted); margin-top: 6px; }
 .rates .reference { margin-top: 6px; }
-.slider { margin: 0 0 24px; padding: 18px; border: 1px solid #eadce4; border-radius: 10px; background: #fdf9fb; }
+.slider { margin: 0 0 24px; padding: 18px; border: 1px solid var(--blush-line); border-radius: 14px; background: var(--blush-soft); }
 .slider h4 { margin-top: 0; }
 .slider p { font-size: 15px; margin: 8px 0 12px; }
 .sliderField { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }

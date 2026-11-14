@@ -37,7 +37,7 @@ export function ReferralAppointment({ referralID, receivedAt }: { referralID: st
       <p>{booking.service} · {booking.location}</p>
       {toBooking >= 0 ? <p>Booked {formatWait(toBooking)} after the referral was received.</p> : null}
       <p>Booking reference <code>{booking.appointment_id}</code></p>
-      <small>Shared synthetic schedule. This does not reserve a real clinic appointment.</small>
+      <small>Demo schedule. This does not reserve a real clinic appointment.</small>
     </> : null}
   </section>;
 }

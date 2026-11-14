@@ -28,7 +28,7 @@ export function checkEnvironment(env: Env = process.env): FeatureStatus[] {
     ...(env.DEMO_MODE === "true" ? [] : ["DEMO_MODE=true"]),
     ...(env.CHAIN === "mock" ? [] : ["CHAIN=mock"]),
     ...(env.LLM === "ondevice" ? [] : ["LLM=ondevice"]),
-  ], "Every referral API request fails: the server refuses to run without the synthetic demo adapters.", "fatal");
+  ], "Every referral API request fails: the server refuses to run without the demo adapters.", "fatal");
 
   if (hosted) {
     add("Hosted database", has(env, "DATABASE_URL") ? [] : ["DATABASE_URL"], "All referral storage fails on Vercel (no SQLite fallback).", "fatal");
