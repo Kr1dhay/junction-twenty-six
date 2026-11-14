@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { toCRMConsultation, toCRMReferral, type ChainClient, type ConsultationRecord, type CommitmentAccount, type ReferralRecord, type ReferralRepository } from "@edgecare/shared-types";
+import { offeredSlots, eligibleSlot, makeAppointment, type Appointment } from "./appointments";
 import { preservesReferralIdentity } from "./referral-update";
 
 export class ConflictError extends Error {}
@@ -20,10 +21,56 @@ export class DemoRepository implements ReferralRepository, ChainClient {
       CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL, spent INTEGER NOT NULL DEFAULT 0, created_slot INTEGER NOT NULL, spent_slot INTEGER, spent_at TEXT, operation_id TEXT);
       CREATE TABLE IF NOT EXISTS consultations (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, started_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS consultations_referral ON consultations (referral_id, started_at);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS appointments (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, slot_id TEXT NOT NULL, starts_at TEXT NOT NULL, active INTEGER NOT NULL, payload TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS appointments_slot_active ON appointments(slot_id) WHERE active = 1;
+      CREATE UNIQUE INDEX IF NOT EXISTS appointments_referral_active ON appointments(referral_id) WHERE active = 1;`);
     const columns = this.db.prepare("PRAGMA table_info(commitments)").all() as { name: string }[];
     if (!columns.some(column => column.name === "operation_id")) this.db.exec("ALTER TABLE commitments ADD COLUMN operation_id TEXT");
   }
   close() { this.db.close(); }
+  appointmentSlots() {
+    const taken = new Set((this.db.prepare("SELECT slot_id FROM appointments WHERE active = 1 AND starts_at > ?").all(this.now().toISOString()) as { slot_id: string }[]).map(row => row.slot_id));
+    return offeredSlots(this.now()).filter(slot => !taken.has(slot.slot_id));
+  }
+  appointmentFor(id: string): Appointment | undefined {
+    const row = this.db.prepare("SELECT payload FROM appointments WHERE referral_id = ? AND active = 1 AND starts_at > ?").get(id, this.now().toISOString()) as { payload: string } | undefined;
+    return row ? JSON.parse(row.payload) as Appointment : undefined;
+  }
+  bookAppointment(id: string, slotID: string, operationID: string): Appointment {
+    return this.db.transaction(() => {
+      const old = this.db.prepare("SELECT payload FROM appointments WHERE id = ?").get(operationID) as { payload: string } | undefined;
+      if (old) {
+        const booking = JSON.parse(old.payload) as Appointment;
+        if (booking.referral_id !== id || booking.slot_id !== slotID) throw new ConflictError("Booking operation already used");
+        return booking;
+      }
+      const record = this.verificationEnvelope(id);
+      if (!record) throw new MissingError("Referral not found");
+      const now = this.now(), slot = eligibleSlot(record, slotID, now);
+      if (!slot) throw new ConflictError("Slot is no longer available or referral has expired");
+      this.db.prepare("UPDATE appointments SET active = 0, payload = json_set(payload, '$.status', 'completed') WHERE referral_id = ? AND active = 1 AND starts_at <= ?").run(id, now.toISOString());
+      const booking = makeAppointment(record, slot, operationID, now);
+      try {
+        this.db.prepare("INSERT INTO appointments (id, referral_id, slot_id, starts_at, active, payload) VALUES (?, ?, ?, ?, 1, ?)").run(operationID, id, slotID, slot.starts_at, JSON.stringify(booking));
+      } catch (error) {
+        if ((error as { code?: string }).code?.startsWith("SQLITE_CONSTRAINT")) throw new ConflictError("Slot was taken or this referral already has an appointment");
+        throw error;
+      }
+      return booking;
+    }).immediate();
+  }
+  cancelAppointment(id: string, appointmentID: string): Appointment {
+    return this.db.transaction(() => {
+      const row = this.db.prepare("SELECT payload FROM appointments WHERE id = ? AND referral_id = ?").get(appointmentID, id) as { payload: string } | undefined;
+      if (!row) throw new MissingError("Appointment not found");
+      const booking = JSON.parse(row.payload) as Appointment;
+      if (booking.status === "cancelled") return booking;
+      if (booking.starts_at <= this.now().toISOString()) throw new ConflictError("Appointment has already started");
+      const cancelled: Appointment = { ...booking, status: "cancelled" };
+      this.db.prepare("UPDATE appointments SET active = 0, payload = ? WHERE id = ?").run(JSON.stringify(cancelled), appointmentID);
+      return cancelled;
+    }).immediate();
+  }
   // Overloads expose the two independent interfaces without duplicating storage.
   create(record: ReferralRecord): { created: boolean };
   create(id: string, hash: string): void;

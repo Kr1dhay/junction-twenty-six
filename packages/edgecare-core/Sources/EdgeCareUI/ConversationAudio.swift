@@ -12,6 +12,10 @@ import EdgeCareCore
     var onSilence: (() -> Void)?
     var onFailure: (() -> Void)?
     var onPlaybackFinished: (() -> Void)?
+    var onCalibrating: (() -> Void)?
+    var onCalibrated: ((Bool) -> Void)?
+    private var calibration = MicrophoneCalibration()
+    func resetCalibration() { calibration = MicrophoneCalibration() }
     var onActivity: (() -> Void)?
     private var generation = 0
     private var meterTask: Task<Void, Never>?
@@ -63,15 +67,29 @@ import EdgeCareCore
             guard recording.record() else { throw CoreError.notConfigured }
             recorder = recording
             activeSince = ContinuousClock.now
+            if !calibration.isComplete { onCalibrating?() }
+            else { onCalibrated?(calibration.isNoisy) }
             meterTask = Task { [weak self] in
-                var detector = SpeechTurnDetector()
+                var detector: SpeechTurnDetector?
+                var readyAt: TimeInterval = 0
+                var lastSample: TimeInterval = 0
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                     guard let self, self.generation == current, let recorder = self.recorder else { return }
                     guard recorder.isRecording else { self.fail(); return }
                     recorder.updateMeters()
-                    let result = detector.sample(power: recorder.averagePower(forChannel: 0), elapsed: recorder.currentTime)
-                    if detector.hasSpeech { self.onActivity?() }
+                    let power = recorder.averagePower(forChannel: 0), time = recorder.currentTime
+                    if !self.calibration.isComplete {
+                        self.calibration.sample(power: power, duration: time - lastSample)
+                        lastSample = time
+                        if self.calibration.isComplete { readyAt = time; self.onCalibrated?(self.calibration.isNoisy) }
+                        continue
+                    }
+                    if detector == nil { detector = SpeechTurnDetector(threshold: self.calibration.speechThreshold) }
+                    guard var currentDetector = detector else { return }
+                    let result = currentDetector.sample(power: power, elapsed: time - readyAt)
+                    detector = currentDetector
+                    if currentDetector.hasSpeech && power >= self.calibration.speechThreshold { self.onActivity?() }
                     switch result {
                     case .listening: continue
                     case .speechEnded:

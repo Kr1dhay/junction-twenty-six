@@ -8,6 +8,7 @@ public actor NativeSession {
     public nonisolated let chain: any ChainClient
     public nonisolated let api: any ReferralAPI
     public nonisolated let configuration: AppConfiguration
+    private let appointmentAPI: (any AppointmentAPI)?
     private let voiceClient: ConsentGatedVoiceClient?
     public nonisolated let consultationAPI: any ConsultationAPI
     public nonisolated let consultationOutbox: ConsultationOutbox?
@@ -16,10 +17,11 @@ public actor NativeSession {
 
     public init(configuration: AppConfiguration, wallet: ReferralWallet, outbox: ReferralOutbox,
                 chain: any ChainClient, api: any ReferralAPI, online: Bool = true, voiceClient: ConsentGatedVoiceClient? = nil,
-                consultationAPI: any ConsultationAPI = MockConsultationAPI(), consultationOutbox: ConsultationOutbox? = nil) {
+                consultationAPI: any ConsultationAPI = MockConsultationAPI(), consultationOutbox: ConsultationOutbox? = nil,
+                appointmentAPI: (any AppointmentAPI)? = nil) {
         self.configuration = configuration; self.wallet = wallet; self.outbox = outbox
         self.chain = chain; self.api = api; self.online = online; self.voiceClient = voiceClient
-        self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox
+        self.consultationAPI = consultationAPI; self.consultationOutbox = consultationOutbox; self.appointmentAPI = appointmentAPI
     }
     private static func storageKey(directory: URL) throws -> Data {
         let account = "wallet-v1-" + SHA256.hash(data: Data(directory.standardizedFileURL.path.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -56,8 +58,36 @@ public actor NativeSession {
         let voice = ConsentGatedVoiceClient(baseURL: baseURL, configuration: .connectedDemo, bearerToken: issuerToken ?? bearerToken)
         let consultations = RESTConsultationAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken)
         let consultationOutbox = try ConsultationOutbox(storeURL: storageDirectory.appendingPathComponent("connected-consultations.enc"), key: key)
+        let appointments = RESTAppointmentAPI(baseURL: baseURL, configuration: .connectedDemo, bearerToken: bearerToken, issuerToken: issuerToken)
         return NativeSession(configuration: .connectedDemo, wallet: wallet, outbox: outbox, chain: chain, api: api, voiceClient: voice,
-                             consultationAPI: consultations, consultationOutbox: consultationOutbox)
+                             consultationAPI: consultations, consultationOutbox: consultationOutbox, appointmentAPI: appointments)
+    }
+    /// The edit session was unlocked with the patient's code and signature on this device.
+    public func appointmentVerification(for authorization: ReferralEditSession) -> PatientVerification {
+        PatientVerification(referralID: authorization.original.id, commitmentHash: authorization.original.commitmentHash)
+    }
+    private func appointments(record: ReferralRecord, verification: PatientVerification) throws -> any AppointmentAPI {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard verification.referralID == record.id, verification.commitmentHash == record.commitmentHash,
+              Date().timeIntervalSince(verification.verifiedAt) < 15 * 60,
+              (AppointmentSlot.date(record.expiresAt).map { $0 > Date() } ?? false) else { throw CoreError.verificationFailed }
+        guard let appointmentAPI else { throw CoreError.notConfigured }
+        return appointmentAPI
+    }
+    public func appointmentAvailability(record: ReferralRecord, verification: PatientVerification) async throws -> AppointmentAvailability {
+        let service = try appointments(record: record, verification: verification)
+        let booking = try await service.appointment(referralID: record.id)
+        let slots = try await service.slots()
+        let expiry = AppointmentSlot.date(record.expiresAt) ?? .distantPast
+        return AppointmentAvailability(slots: slots.filter { $0.demo && ($0.endDate.map { $0 <= expiry } ?? false) }, appointment: booking)
+    }
+    public func bookAppointment(record: ReferralRecord, verification: PatientVerification, slotID: String, operationID: String) async throws -> AppointmentBooking {
+        let service = try appointments(record: record, verification: verification)
+        return try await service.book(referralID: record.id, slotID: slotID, operationID: operationID)
+    }
+    public func cancelAppointment(record: ReferralRecord, verification: PatientVerification, appointmentID: String) async throws {
+        let service = try appointments(record: record, verification: verification)
+        try await service.cancel(referralID: record.id, appointmentID: appointmentID)
     }
     public func isOnline() -> Bool { online }
     public func voiceTurn(audio: Data? = nil, mimeType: String = "audio/mp4", text: String? = nil,
@@ -75,6 +105,17 @@ public actor NativeSession {
         guard consent else { throw CoreError.consentRequired }
         guard let voiceClient else { throw CoreError.providerUnavailable }
         return try await voiceClient.normalize(VoiceTurnRequest(consent: consent, text: text, language: language, profile: profile, history: history))
+    }
+    public func voiceEngine() async throws -> VoiceEngine {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.engine()
+    }
+    public func liveVoiceSession(language: String?, profile: ClinicalProfile, history: [VoiceConversationTurn], consent: Bool) async throws -> GeminiLiveCredentials {
+        guard configuration.allowsNetwork, online else { throw CoreError.offline }
+        guard consent else { throw CoreError.consentRequired }
+        guard let voiceClient else { throw CoreError.providerUnavailable }
+        return try await voiceClient.liveSession(consent: consent, language: language, profile: profile, history: history)
     }
     /// Called by the app's connectivity observer and airplane-mode demo control.
     public func setOnline(_ value: Bool) async {

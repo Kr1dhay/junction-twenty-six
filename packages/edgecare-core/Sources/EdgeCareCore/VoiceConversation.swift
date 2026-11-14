@@ -87,6 +87,23 @@ public struct ConsentGatedVoiceClient: Sendable {
     public func normalize(_ request: VoiceTurnRequest) async throws -> VoiceTurnResponse {
         try await send(request, path: ["demo", "profile", "normalize"])
     }
+    public func engine() async throws -> VoiceEngine {
+        struct Configuration: Decodable { let engine: VoiceEngine }
+        do {
+            return try JSONDecoder().decode(Configuration.self, from: await transport.request(path: ["demo", "voice", "config"])).engine
+        } catch CoreError.notFound { return .legacy } // Backward-compatible with older demo servers.
+    }
+    public func liveSession(consent: Bool, language: String?, profile: ClinicalProfile, history: [VoiceConversationTurn]) async throws -> GeminiLiveCredentials {
+        guard consent else { throw CoreError.consentRequired }
+        struct Context: Encodable {
+            let consent: Bool; let language: String?; let profile: ClinicalProfile; let history: [VoiceConversationTurn]
+        }
+        let body = try JSONEncoder().encode(Context(consent: consent, language: language, profile: profile, history: Array(history.suffix(30))))
+        let data = try await transport.request(path: ["demo", "voice", "live", "session"], method: "POST", body: body, issuer: true)
+        let credentials = try JSONDecoder().decode(GeminiLiveCredentials.self, from: data)
+        _ = try credentials.request()
+        return credentials
+    }
     private func send(_ request: VoiceTurnRequest, path: [String]) async throws -> VoiceTurnResponse {
         guard request.consent else { throw CoreError.consentRequired }
         guard request.audioBase64 != nil || !(request.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else { throw CoreError.emptyConcern }
