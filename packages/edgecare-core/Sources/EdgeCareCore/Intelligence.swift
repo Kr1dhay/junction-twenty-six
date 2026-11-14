@@ -4,12 +4,12 @@ import FoundationNetworking
 #endif
 
 public enum SupportedLanguage: String, CaseIterable, Codable, Sendable {
-    case en, fi, so, ar, ru
+    case en, fi, so, ar, ru, ne
     public static func resolve(_ code: String) -> Self {
         Self(rawValue: String(code.lowercased().prefix(2))) ?? .en
     }
     public var speechLocale: String {
-        switch self { case .en: return "en-GB"; case .fi: return "fi-FI"; case .so: return "so-SO"; case .ar: return "ar-SA"; case .ru: return "ru-RU" }
+        switch self { case .en: return "en-GB"; case .fi: return "fi-FI"; case .so: return "so-SO"; case .ar: return "ar-SA"; case .ru: return "ru-RU"; case .ne: return "ne-NP" }
     }
     public var noRecoveryWarning: String {
         switch self {
@@ -18,6 +18,7 @@ public enum SupportedLanguage: String, CaseIterable, Codable, Sendable {
         case .so: return "Xusuusnow saxiixaaga iyo koodhka afarta lambar ah. Akoon ma jiro, koodh la illoobayna dib looma soo celin karo."
         case .ar: return "تذكّر توقيعك ورمزك المكوّن من أربعة أرقام. لا يوجد حساب ولا يمكن استعادة الرمز إذا نسيته."
         case .ru: return "Запомните подпись и код из четырёх цифр. Учётной записи нет. Забытый код восстановить нельзя."
+        case .ne: return "आफ्नो हस्ताक्षर र चार अङ्कको कोड सम्झनुहोस्। कुनै खाता छैन, र बिर्सिएको कोड रिसेट गर्ने कुनै उपाय छैन।"
         }
     }
 }
@@ -51,13 +52,13 @@ public struct OnDeviceTriageEngine: TriageEngine {
     public init() {}
     public func guidance(for text: String, language: String) async throws -> TriageGuidance {
         let text = text.lowercased()
-        let emergency = text.contains("[urgent_now=yes]") || ["severe chest pain", "chest pain", "cannot breathe", "can't breathe", "difficulty breathing", "heavy bleeding", "unconscious", "rintakipu", "hengitysvaike", "runsas verenvuoto", "xanuun laabta", "neefsan kari", "نزيف شديد", "ألم في الصدر", "صعوبة في التنفس", "боль в груди", "трудно дышать", "сильное кровотечение"].contains { text.contains($0) }
-        let skin = ["mole", "skin", "lesion", "luomi", "iho", "bar maqaarka", "maqaarka", "شامة", "جلد", "родин", "кож"].contains { text.contains($0) }
-        let bleeding = ["bleed", "blood", "veri", "verenvuoto", "dhiig", "نزيف", "دم", "кров"].contains { text.contains($0) }
-        let lump = ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "опухол", "уплотнен"].contains { text.contains($0) }
-        let cough = ["cough", "yskä", "qufac", "سعال", "кашель"].contains { text.contains($0) }
+        let emergency = text.contains("[urgent_now=yes]") || ["severe chest pain", "chest pain", "cannot breathe", "can't breathe", "difficulty breathing", "heavy bleeding", "unconscious", "rintakipu", "hengitysvaike", "runsas verenvuoto", "xanuun laabta", "neefsan kari", "نزيف شديد", "ألم في الصدر", "صعوبة في التنفس", "боль в груди", "трудно дышать", "сильное кровотечение", "छाती दुख", "सास फेर्न गाह्रो", "धेरै रगत", "बेहोस"].contains { text.contains($0) }
+        let skin = ["mole", "skin", "lesion", "luomi", "iho", "bar maqaarka", "maqaarka", "شامة", "جلد", "родин", "кож", "कोठी", "छाला"].contains { text.contains($0) }
+        let bleeding = ["bleed", "blood", "veri", "verenvuoto", "dhiig", "نزيف", "دم", "кров", "रगत", "रक्तस्राव"].contains { text.contains($0) }
+        let lump = ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "опухол", "уплотнен", "गाँठो", "सुन्निए"].contains { text.contains($0) }
+        let cough = ["cough", "yskä", "qufac", "سعال", "кашель", "खोकी"].contains { text.contains($0) }
         let persistent = text.contains("[persistent_or_changing=yes]")
-        let letter = ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "письм", "скрининг"].contains { text.contains($0) }
+        let letter = ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "письм", "скрининг", "चिठी", "स्क्रिनिङ", "जाँच"].contains { text.contains($0) }
         let lang = SupportedLanguage.resolve(language)
         var symptoms: [String] = []
         if emergency { symptoms.append("emergency_symptom_reported") }
@@ -92,6 +93,9 @@ public struct OnDeviceTriageEngine: TriageEngine {
         case .ru:
             if emergency { return "Если сейчас есть боль в груди, сильное затруднение дыхания, сильное кровотечение или потеря сознания, немедленно звоните 112. Не ждите направления. Этот демонстрационный сценарий не оценивает экстренные состояния." }
             return (letter ? "Попросите медицинский центр объяснить письмо и указания о приёме или скрининге. " : "Обратитесь к специалисту при новом или меняющемся уплотнении, изменении родинки, необъяснимом кровотечении, длительных или усиливающихся симптомах. ") + "Эти рекомендации не могут диагностировать или исключить рак."
+        case .ne:
+            if emergency { return "यदि तपाईंलाई अहिले छाती दुखेको, सास फेर्न धेरै गाह्रो भएको, धेरै रगत बगेको वा बेहोस भएको छ भने तुरुन्तै 112 मा फोन गर्नुहोस्। रेफरलको प्रतीक्षा नगर्नुहोस्। यो स्क्रिप्टेड डेमोले आपतकालीन अवस्थाको मूल्याङ्कन गर्न सक्दैन।" }
+            return (letter ? "स्वास्थ्य केन्द्रलाई चिठी र अपोइन्टमेन्ट वा स्क्रिनिङ सम्बन्धी निर्देशनहरू बुझाउन भन्नुहोस्। " : "नयाँ वा परिवर्तन हुँदै गरेको गाँठो वा कोठी, कारण नखुलेको रक्तस्राव, वा लामो समयसम्म रहने वा झन् बिग्रँदै गएका लक्षणहरूका लागि चिकित्सकसँग जाँच गराउनुहोस्। ") + "यो मार्गदर्शनले क्यान्सरको निदान गर्न वा यसलाई खारेज गर्न सक्दैन।"
         }
     }
     private static func questions(language: SupportedLanguage) -> [String] {
@@ -101,6 +105,7 @@ public struct OnDeviceTriageEngine: TriageEngine {
         case .so: return ["Goormaad markii ugu horreysay aragtay?", "Ma is beddeshay ama ma ka sii dartay?", "Ma jiraa dhiigbax, buro cusub, xanuun ama nabar aan bogsan?", "Ma rabtaa caawimo fahamka warqadda baaritaanka?"]
         case .ar: return ["متى لاحظت هذا لأول مرة؟", "هل تغيّر أو ازداد سوءاً؟", "هل يوجد نزيف أو كتلة جديدة أو ألم أو قرحة لا تلتئم؟", "هل تريد مساعدة لفهم رسالة الفحص؟"]
         case .ru: return ["Когда вы впервые это заметили?", "Это изменилось или стало хуже?", "Есть ли кровотечение, новое уплотнение, боль или незаживающая ранка?", "Нужна ли помощь с письмом о скрининге?"]
+        case .ne: return ["तपाईंले यो पहिलो पटक कहिले देख्नुभयो?", "के यो परिवर्तन भएको छ वा झन् बिग्रिएको छ?", "के रगत बगेको, नयाँ गाँठो, दुखाइ वा निको नभएको घाउ छ?", "के तपाईं स्क्रिनिङ चिठी बुझ्न सहयोग चाहनुहुन्छ?"]
         }
     }
 }
