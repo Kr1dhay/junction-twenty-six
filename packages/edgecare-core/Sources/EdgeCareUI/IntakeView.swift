@@ -16,8 +16,12 @@ import EdgeCareCore
     public var guidance: TriageGuidance?
     public var busy = false
     public var step = 0
-    public var urgent: String?
-    public var persistent: String?
+    public var safety = SafetyQuestionnaireState(plan: [])
+    public var emergencyAdvicePending = false
+    public var continuedAfterEmergencyAdvice = false
+    public var urgent: String? { aggregateAnswer(.emergency) }
+    public var persistent: String? { aggregateAnswer(.persistence) }
+    public var requiresEmergencyAdvice: Bool { safety.requiresEmergencyHelp || guidance?.requiresEmergencyHelp == true }
     public var letterText = ""
     public var lesionPresent = false
     public var strokes: [[SignaturePoint]] = []
@@ -30,17 +34,94 @@ import EdgeCareCore
     public var languageDetected = false
     public var lastActivity = Date()
     private var generation = 0
+    private struct SafetyInput: Equatable {
+        let profile: ClinicalProfile
+        let selectedSymptoms: Set<String>
+        let concern: String
+    }
+    private var safetyInput: SafetyInput?
     public let source: ReferralSource
     private let triage: any TriageEngine
     public init(source: ReferralSource = .patientApp, triage: any TriageEngine = OnDeviceTriageEngine()) { self.source = source; self.triage = triage }
+    public func beginSafetyQuestions() {
+        guard !busy else { return }
+        let input = SafetyInput(profile: clinicalProfile, selectedSymptoms: selectedSymptoms, concern: concern)
+        if safetyInput != input {
+            safety.reset(plan: SafetyQuestionnaire.plan(profile: clinicalProfile, selectedSymptoms: selectedSymptoms, originalConcern: concern))
+            continuedAfterEmergencyAdvice = false
+            safetyInput = input
+        }
+        emergencyAdvicePending = false; guidance = nil; error = nil
+        advanceSafetyStep()
+    }
+    public func answerSafetyQuestion(_ answer: SafetyAnswer) {
+        guard !busy, let question = safety.currentQuestion, !emergencyAdvicePending else { return }
+        safety.answer(answer, for: question.id)
+        guidance = nil; error = nil; lastActivity = Date()
+        if question.category == .emergency && answer == .yes {
+            emergencyAdvicePending = true
+        } else { advanceSafetyStep() }
+    }
+    public func continueAfterEmergencyAdvice() {
+        guard !busy, emergencyAdvicePending else { return }
+        continuedAfterEmergencyAdvice = true; emergencyAdvicePending = false
+        advanceSafetyStep()
+    }
+    public func proceedToReferral() {
+        guard !busy, let guidance else { return }
+        if guidance.requiresEmergencyHelp {
+            continuedAfterEmergencyAdvice = true
+            self.guidance = annotated(guidance)
+        }
+        step = 6
+    }
+    public func goBack() {
+        guard !busy else { return }
+        error = nil
+        if emergencyAdvicePending {
+            emergencyAdvicePending = false
+            _ = safety.moveBack(); advanceSafetyStep()
+        } else if (2...4).contains(step) {
+            if safety.moveBack() { advanceSafetyStep() } else { step = 1 }
+        } else { step = max(1, step - 1) }
+    }
+    private func advanceSafetyStep() {
+        if let question = safety.currentQuestion { step = question.category == .emergency ? 2 : 3 }
+        else { step = 4 }
+        lastActivity = Date()
+    }
+    private func aggregateAnswer(_ category: SafetyQuestionCategory) -> String? {
+        let questions = safety.plan.filter { $0.category == category }
+        guard !questions.isEmpty else { return nil }
+        let answers = questions.compactMap { safety.answers[$0.id.rawValue] }
+        if answers.contains("yes") { return "yes" }
+        if answers.count < questions.count || answers.contains("unsure") { return "unsure" }
+        return "no"
+    }
+    public var referralAnswers: [String: String] {
+        var answers = safety.portableAnswers
+        answers["urgent_now"] = urgent ?? "unsure"
+        answers["persistent_or_changing"] = persistent ?? "unsure"
+        if continuedAfterEmergencyAdvice { answers["emergency_advice_action"] = "continued_questionnaire_or_referral_after_112_advice" }
+        return answers
+    }
+    private func annotated(_ result: TriageGuidance) -> TriageGuidance {
+        let continuation = "Patient chose to continue the referral after emergency advice. Contact with emergency services has not been verified."
+        guard continuedAfterEmergencyAdvice, !result.clinicianSummary.contains(continuation) else { return result }
+        return TriageGuidance(message: result.message, followUpQuestions: result.followUpQuestions,
+            riskBand: result.riskBand, riskScore: result.riskScore, recommendedSpecialty: result.recommendedSpecialty,
+            symptoms: result.symptoms, clinicianSummary: result.clinicianSummary + " " + continuation,
+            label: result.label, requiresEmergencyHelp: result.requiresEmergencyHelp, sources: result.sources)
+    }
     public func continueFlow() async {
+        guard !safety.plan.isEmpty, safety.isComplete else { error = Copy.text("error", language); return }
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
         let structured = "\(clinicalProfile.clinicianSummary)\n\(concern)\n[urgent_now=\(urgent ?? "unsure")]\n[persistent_or_changing=\(persistent ?? "unsure")]" + (letterText.isEmpty ? "" : "\nScreening letter: \(letterText)") + (lesionPresent ? "\nSkin concern photo noted; no image model assessment." : "")
         do {
             let result = try await triage.guidance(for: structured, language: language)
             guard generation == currentGeneration else { return }
-            guidance = result; step = 5
+            guidance = annotated(result); step = 5
         }
         catch { if generation == currentGeneration { self.error = Copy.text("error", language) } }
     }
@@ -50,7 +131,7 @@ import EdgeCareCore
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
         do {
-            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: ["urgent_now": urgent ?? "unsure", "persistent_or_changing": persistent ?? "unsure"], clinicalProfile: clinicalProfile)
+            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile)
             let sealed = try await session.enroll(draft: draft, strokes: strokes, passcode: passcode, confirmation: confirmation)
             guard generation == currentGeneration else { return }
             record = sealed
@@ -61,7 +142,7 @@ import EdgeCareCore
     public func reset() {
         generation += 1; busy = false
         inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false; voiceIntakeComplete = false
-        concern = ""; guidance = nil; step = 0; urgent = nil; persistent = nil; letterText = ""; lesionPresent = false
+        concern = ""; guidance = nil; step = 0; safety.reset(plan: []); safetyInput = nil; emergencyAdvicePending = false; continuedAfterEmergencyAdvice = false; letterText = ""; lesionPresent = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
         language = "en"; languageChosen = false; languageDetected = false; lastActivity = Date()
     }
@@ -96,13 +177,16 @@ public struct IntakeView: View {
                         .accessibilityLabel("\(model.step) / 7")
                 }
                 if app.session == nil, let message = app.message { Text(message).foregroundStyle(.red) }
-                content
+                if model.requiresEmergencyAdvice && model.step >= 2 && model.step != 5 && !model.emergencyAdvicePending {
+                    emergencyNotice
+                }
+                content.disabled(model.busy)
                 if let error = model.error { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
                 if model.busy { ProgressView(t("saving")) }
                 if model.step > 0 {
                     HStack {
                         if model.step < 7 && model.step > 1 {
-                            Button(t("back")) { speech.stop(); model.step -= 1; model.error = nil }.buttonStyle(.bordered).frame(minHeight: 48)
+                            Button(t("back")) { speech.stop(); model.goBack() }.buttonStyle(.bordered).frame(minHeight: 48).disabled(model.busy)
                         }
                         Spacer()
                         Button(t("end"), role: .destructive) { reset() }.frame(minHeight: 48)
@@ -170,13 +254,19 @@ public struct IntakeView: View {
                 if model.languageDetected { Text(t("detected")).font(.footnote) }
                 speechControls(prompt: t("concernTitle"), input: true)
             }
-            primary(t("next")) { model.step = 2 }
+            primary(t("next")) { model.beginSafetyQuestions() }
                 .disabled(model.inputMode == "form" ? model.selectedSymptoms.isEmpty : model.clinicalProfile.concernEnglish.isEmpty)
 
-        case 2:
-            question("urgentQuestion", selection: $model.urgent, next: 3)
-        case 3:
-            question("changeQuestion", selection: $model.persistent, next: 4)
+        case 2, 3:
+            if model.emergencyAdvicePending {
+                heading(t("emergencyTitle"))
+                emergencyNotice
+                Text(t("emergencyContinueExplanation"))
+                primary(t("continueQuestionnaire")) { model.continueAfterEmergencyAdvice() }
+                speechControls(prompt: t("emergencyAdvice"), input: false)
+            } else if let question = model.safety.currentQuestion {
+                safetyQuestion(question)
+            }
         case 4:
             heading(t("evidence"))
             EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent)
@@ -189,8 +279,10 @@ public struct IntakeView: View {
                 speechControls(prompt: guidance.message, input: false)
                 safetySources
                 if guidance.requiresEmergencyHelp {
-                    Link(destination: URL(string: "tel:112")!) { Label("112", systemImage: "phone.fill").font(.title2).frame(maxWidth: .infinity, minHeight: 56) }.buttonStyle(.borderedProminent).tint(.red)
-                } else { primary(t("seal")) { model.step = 6 } }
+                    emergencyNotice
+                    Text(t("emergencyContinueExplanation"))
+                    primary(t("continueReferral")) { model.proceedToReferral() }
+                } else { primary(t("seal")) { model.proceedToReferral() } }
             }
         case 6:
             heading(t("seal"))
@@ -231,19 +323,28 @@ public struct IntakeView: View {
         Button(action: action) { Text(title).font(.headline).frame(maxWidth: .infinity, minHeight: 48) }
             .buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).disabled(model.busy)
     }
-    private func question(_ key: String, selection: Binding<String?>, next: Int) -> some View {
+    private var emergencyNotice: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(t("emergencyAdvice"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Link(destination: URL(string: "tel:112")!) {
+                Label(t("callEmergency"), systemImage: "phone.fill").font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.borderedProminent).tint(.red)
+        }.padding(16).background(.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func safetyQuestion(_ question: SafetyQuestion) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            heading(t(key))
+            Text(t("tailoredSafety")).font(.subheadline).foregroundStyle(.secondary)
+            Text("\(model.safety.currentIndex + 1) / \(model.safety.totalCount)").font(.caption)
+            heading(t(question.copyKey))
             ForEach(["yes", "no", "unsure"], id: \.self) { answer in
                 Button {
-                    selection.wrappedValue = answer
-                    if key == "urgentQuestion" && answer == "yes" { Task { await model.continueFlow() } }
-                    else { model.step = next }
+                    speech.stop()
+                    if let answer = SafetyAnswer(rawValue: answer) { model.answerSafetyQuestion(answer) }
                 } label: {
-                    HStack { Text(t(answer)); Spacer(); if selection.wrappedValue == answer { Image(systemName: "checkmark.circle.fill") } }.frame(minHeight: 48)
+                    HStack { Text(t(answer)); Spacer(); if model.safety.answers[question.id.rawValue] == answer { Image(systemName: "checkmark.circle.fill") } }.frame(minHeight: 48)
                 }.buttonStyle(.bordered).tint(EdgeCareStyle.mulberry)
             }
-            speechControls(prompt: t(key), input: false)
+            speechControls(prompt: t(question.copyKey), input: false)
         }
     }
     private func speechControls(prompt: String, input: Bool) -> some View {
@@ -264,6 +365,7 @@ public struct IntakeView: View {
         VStack(alignment: .leading, spacing: 8) {
             Link("NHS · cancer information", destination: URL(string: "https://www.nhs.uk/conditions/cancer/")!)
             Link("HUS · urgent and emergency care in Finland", destination: URL(string: "https://www.hus.fi/en/patient/treatments-and-examinations/prehospital-emergency-care")!)
+            Link("NHS · breathing symptoms", destination: URL(string: "https://www.nhs.uk/symptoms/shortness-of-breath/")!)
         }.font(.footnote)
     }
     private func reset() { speech.stop(); model.reset(); idleSoon = false; app.message = nil }
