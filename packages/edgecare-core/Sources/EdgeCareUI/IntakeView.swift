@@ -412,7 +412,7 @@ private struct IntakeLayoutView: View {
         case 4:
             heading(t("evidence"))
             if model.shouldOfferVoiceResearch, model.voiceResearch == nil, model.voiceResearchDecision != "declined" { voiceResearchEntry }
-            EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent,
+            EvidenceCapture(language: model.language, lesionPresent: $model.lesionPresent,
                             lesionImage: $model.lesionImage, photoConsent: $model.photoConsent)
             if model.busy && model.photoConsent && model.lesionImage != nil { ProgressView(t("analysingPhoto")) }
             primary(t("next")) { Task { await model.continueFlow(using: app.session) } }.disabled(model.busy)

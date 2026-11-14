@@ -23,10 +23,16 @@ targetTemplates:
     info:
       path: apps/Info.plist
       properties:
-        NSCameraUsageDescription: Read a letter on this device, or add a skin concern photo. With your consent, a skin photo is sent to the Edge-Care server and Google Gemini for a demo risk estimate and is not stored.
+        NSCameraUsageDescription: Add a skin concern photo. With your consent, a skin photo is sent to the Edge-Care server and Google Gemini for a demo risk estimate and is not stored.
         NSMicrophoneUsageDescription: With consent, voice intake streams audio to Google Gemini; translated doctor consultations use ElevenLabs and Google Gemini. Consultation audio is not stored. You can use the form offline.
         NSSpeechRecognitionUsageDescription: Optional form dictation uses Apple on-device recognition. Online conversation is a separate consent-based service.
         NSLocalNetworkUsageDescription: Connect to the shared Edge-Care demo backend on your local network.
+        # Filled from the build settings below; empty on simulator builds, so
+        # simulators keep their launch-environment behaviour.
+        EDGECARE_MODE: $(EDGECARE_MODE)
+        EDGECARE_BASE_URL: $(EDGECARE_BASE_URL)
+        EDGECARE_ISSUER_TOKEN: $(EDGECARE_ISSUER_TOKEN)
+        EDGECARE_CLINICIAN_TOKEN: $(EDGECARE_CLINICIAN_TOKEN)
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: YES
           NSExceptionDomains:
@@ -40,6 +46,10 @@ targetTemplates:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 0.1.0
+        # Physical-device builds connect to the hosted demo (edgecare-device.json)
+        # when opened from the home screen. Explicit launch values still win.
+        "EDGECARE_MODE[sdk=iphoneos*]": connected
+        "EDGECARE_BASE_URL[sdk=iphoneos*]": https://edgecare-lissankoiralas-projects.vercel.app
 targets:
   EdgeCareKiosk:
     templates: [EdgeCareApp]
@@ -50,6 +60,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.kiosk
         TARGETED_DEVICE_FAMILY: "2"
+        "EDGECARE_ISSUER_TOKEN[sdk=iphoneos*]": uFYko9nDhzJ9eSKcbVClOYLFbl7lOGRumjjkDj_pnkYk6rUzPON78m-UjqkZxuyp
+        "EDGECARE_CLINICIAN_TOKEN[sdk=iphoneos*]": ZzstM5BpioZsGo93z2fTr8oMkkUY4ALwMUpFt0ITToQ9zr3Ld3uToSe-phR_xpi9
   EdgeCareDoctor:
     templates: [EdgeCareApp]
     sources: [apps/doctor-ios/Sources]
@@ -59,6 +71,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.doctor
         TARGETED_DEVICE_FAMILY: "1,2"
+        "EDGECARE_CLINICIAN_TOKEN[sdk=iphoneos*]": ZzstM5BpioZsGo93z2fTr8oMkkUY4ALwMUpFt0ITToQ9zr3Ld3uToSe-phR_xpi9
     scheme:
       testTargets: [EdgeCareDoctorTests]
   EdgeCareDoctorTests:
@@ -81,6 +94,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.edgecare.demo.patient
         TARGETED_DEVICE_FAMILY: "1"
+        "EDGECARE_ISSUER_TOKEN[sdk=iphoneos*]": uFYko9nDhzJ9eSKcbVClOYLFbl7lOGRumjjkDj_pnkYk6rUzPON78m-UjqkZxuyp
+        "EDGECARE_CLINICIAN_TOKEN[sdk=iphoneos*]": ZzstM5BpioZsGo93z2fTr8oMkkUY4ALwMUpFt0ITToQ9zr3Ld3uToSe-phR_xpi9
   EdgeCareDesignReviewTests:
     type: bundle.ui-testing
     platform: iOS
