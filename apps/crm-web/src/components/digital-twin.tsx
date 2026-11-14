@@ -1,6 +1,6 @@
 "use client";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GeoJSONSource, Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 import snapshot from "../lib/twin-snapshot.json";
 import { applyResource, closureImpact, defaultSettings, prepare, rank, resources, simulate, stationName, summary, week,
@@ -29,6 +29,12 @@ const lenses: Record<Lens, { label: string; question: string; reading: string; s
     stops: [[0, "#1f2b2e"], [50, "#256a72"], [300, "#2f9aa6"], [1500, "#4fc3d1"], [6000, "#9fe8f0"]], ticks: ["0", "50", "300", "1,500", "6,000+"] },
 };
 const lensFor: Record<Resource, Lens> = { gp: "capacity", interpreter: "language", clinic: "travel" };
+
+type Camera = { center: [number, number]; zoom: number; pitch: number; bearing: number; id: number };
+type Tour = { step: number; title: string; body: string };
+const TOUR_STEPS = 8;
+const LAPLAND = data.counties.findIndex(c => c.name === "Lapland"), HELSINKI = data.counties.findIndex(c => c.name === "City of Helsinki");
+const KONTULA = data.stations.findIndex(station => /Kontula/.test(station.name));
 
 type Story = { id: number; title: string; body: string };
 type Choice = { resource: Resource; row: Ranked };
@@ -68,6 +74,8 @@ export function DigitalTwin() {
   const [progress, setProgress] = useState<Progress>();
   const [choice, setChoice] = useState<Choice>();
   const [showAfter, setShowAfter] = useState(true);
+  const [tour, setTour] = useState<Tour>();
+  const [camera, setCamera] = useState<Camera>();
   const [stories, setStories] = useState<Story[]>([{ id: 0, title: "Start here", body: `Each column is a 2 km square of mainland Finland: its height is how many people live there. White columns are the ${data.stations.length} public health stations. Pick a question on the map, then a resource on the right.` }]);
   const tell = (title: string, body: string) => setStories(list => [{ id: Date.now() + Math.random(), title, body }, ...list].slice(0, 6));
 
@@ -122,25 +130,88 @@ export function DigitalTwin() {
     const muni = data.municipalities[row.muni]!.name;
     return `${value} It was in the top 3 in ${Math.round(row.bestShare * 100)}% of ${DRAWS} simulated weeks; ${n0(scenarios)} scenarios in total.${gapNames.has(muni) ? ` Check locally: no health station is listed in ${muni}, which may be missing data.` : ""}`;
   }
-  async function run() {
+  async function run(r: Resource = resource, s: Settings = settings, area: number | undefined = county) {
     if (!prep) return;
+    const total = DRAWS * (r === "clinic" ? data.stops.length : data.stations.length);
     setChoice(undefined); setSim(undefined);
-    tell(`Simulating ${n0(scenarioCount)} scenarios`, `${DRAWS} different weeks, each with the ${resources[resource].short.toLowerCase()} tried in every possible place. The gold marker follows the place leading so far.`);
-    const steps = simulate(prep, settings, resource, DRAWS, SEED);
+    tell(`Simulating ${n0(total)} scenarios`, `${DRAWS} different weeks, each with the ${resources[r].short.toLowerCase()} tried in every possible place. The gold marker follows the place leading so far.`);
+    const steps = simulate(prep, s, r, DRAWS, SEED);
     for (;;) {
       const step = steps.next();
       if (step.done) {
         const result = step.value; setSim(result); setProgress(undefined);
-        const best = rank(prep, result, county)[0];
-        if (best) { setChoice({ resource, row: best }); setShowAfter(true); tell(`Best place: ${best.name}`, describe(resource, best, result.scenarios)); }
+        const best = rank(prep, result, area)[0];
+        if (best) { setChoice({ resource: r, row: best }); setShowAfter(true); tell(`Best place: ${best.name}`, describe(r, best, result.scenarios)); }
         return;
       }
-      const lead = resource === "clinic" ? data.stops[step.value.leader]! : data.stations[step.value.leader]!;
-      setProgress({ scenarios: step.value.scenarios, total: scenarioCount, label: step.value.label,
-        leader: resource === "clinic" ? lead.name : stationName(data, step.value.leader), at: [lead.lon, lead.lat] });
+      const lead = r === "clinic" ? data.stops[step.value.leader]! : data.stations[step.value.leader]!;
+      setProgress({ scenarios: step.value.scenarios, total, label: step.value.label,
+        leader: r === "clinic" ? lead.name : stationName(data, step.value.leader), at: [lead.lon, lead.lat] });
       await new Promise(resolve => setTimeout(resolve, 0));
     }
   }
+  // Each tour step sets the whole scene (question, area, disruptions, camera), so Back and Next always agree.
+  function tourTo(k: number) {
+    if (!prep) return;
+    if (k >= TOUR_STEPS) { setTour(undefined); tell("Tour finished", "The page stays as the tour left it. Try another resource, close a station or pick an area."); return; }
+    const scene: Settings = { ...defaultSettings, closed: [] };
+    const base = week(prep, defaultSettings), all = summary(prep, base), pct = (part: number) => `${(part / all.residents * 100).toFixed(1)}%`;
+    let next: Lens = "travel", area: number | undefined, view: Omit<Camera, "id"> | undefined = finland, title: string, body: string;
+    switch (k) {
+      case 0:
+        title = "This is mainland Finland";
+        body = `Every column is a 2 km square: its height is how many people live there, ${n0(all.residents)} in all. The ${data.stations.length} white columns are public health stations. There are no patients here, only public statistics and places.`;
+        break;
+      case 1: {
+        const l = summary(prep, base, LAPLAND); area = LAPLAND; view = undefined;
+        title = "How far is care? Lapland";
+        body = `Colour is now minutes by car to the nearest health station; brighter magenta is further. In Lapland ${n0(l.farByCar)} of ${n0(l.residents)} residents live more than 30 minutes away, and ${n0(l.far65NoCar)} over-65s are that far without a car. The figures above now cover Lapland only.`;
+        break;
+      }
+      case 2:
+        next = "capacity"; title = "Is there enough GP care?";
+        body = `Each station's published GP visits are shared among everyone who can reach it. Magenta squares get fewer than the national average of ${n0(base.target)} visits per 1,000 residents a year; ${n0(all.belowCapacity)} people (${pct(all.belowCapacity)}) get under 80% of it.`;
+        break;
+      case 3:
+        next = "waits"; title = "How long are the waits?";
+        body = `THL publishes the share of non-urgent GP visits that wait more than a week. ${n0(all.longWaits)} people (${pct(all.longWaits)}) live in municipalities where more than half of them do.`;
+        break;
+      case 4: {
+        const h = summary(prep, base, HELSINKI); next = "language"; view = { center: [24.95, 60.21], zoom: 9.4, pitch: 55, bearing: -15 };
+        title = "Who may need an interpreter?";
+        body = `Cyan shows residents whose mother tongue is not Finnish, Swedish or Sami, estimated from municipal shares and never from a person: ${n0(all.language)} across the country, ${n0(h.language)} of them in Helsinki.`;
+        break;
+      }
+      case 5: {
+        const station = data.stations[KONTULA]!; scene.closed = [station.id];
+        const impact = closureImpact(prep, base, week(prep, scene), KONTULA);
+        view = { center: [station.lon, station.lat], zoom: 11.2, pitch: 60, bearing: 20 };
+        title = `What if ${stationName(data, KONTULA)} closes?`;
+        body = `We have closed it: its column has turned grey. About ${n0(impact.moved)} people used it and ${n0(impact.lostVisits)} GP visits a year are lost. They now go to ${impact.to.map(t => stationName(data, t.station)).join(", ")}, ${impact.averageExtraMinutes.toFixed(0)} minutes further on average. You can close any station by clicking its column.`;
+        break;
+      }
+      case 6: {
+        scene.storm = true; const after = summary(prep, week(prep, scene));
+        title = "What if it snows?";
+        body = `A snowstorm makes every trip 30% slower. People more than 30 minutes from care by car go from ${n0(all.farByCar)} to ${n0(after.farByCar)}, mostly in the north and east; watch the squares turn brighter.`;
+        break;
+      }
+      default:
+        title = "Where should one mobile clinic go?";
+        body = `The twin is now trying a weekly mobile clinic in each of ${n0(data.stops.length)} villages, across ${DRAWS} simulated weeks of weather, sick leave and closures. The gold marker follows the leader; at the end the camera flies to the best place, and gold lines show the squares it brings within 30 minutes. The ranking appears below the map.`;
+    }
+    setSettings(scene); setLens(next); setCounty(area); setSim(undefined); setChoice(undefined); setShowAfter(true);
+    if (view) setCamera({ ...view, id: Date.now() });
+    setTour({ step: k, title, body });
+    if (k === 0) document.getElementById("twin-map")?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+    if (k === TOUR_STEPS - 1) { setResource("clinic"); void run("clinic", scene, undefined); }
+  }
+  useEffect(() => {
+    if (!tour) return;
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setTour(undefined); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [tour]);
   function pick(row: Ranked) {
     setChoice({ resource, row }); setShowAfter(true);
     if (sim) tell(`Showing ${row.name}`, describe(resource, row, sim.scenarios));
@@ -159,7 +230,7 @@ export function DigitalTwin() {
       <p className="eyebrow">ACCESS DIGITAL TWIN · MAINLAND FINLAND</p>
       <h1 id="twin-title">Where would one more resource help most?</h1>
       <p>Public data on where people live and where care is. No patient is plotted, and nothing leaves this browser.</p>
-    </div></div>
+    </div><button className="primary-button" onClick={() => tourTo(0)} disabled={!prep || progress !== undefined}>{prep ? "Take the guided tour" : "Preparing…"}</button></div>
     <ol className={styles.steps} aria-label="How to use">
       <li className={!sim && !progress ? styles.stepOn : undefined}><b>1</b>Look: pick a question on the map</li>
       <li className={progress ? styles.stepOn : undefined}><b>2</b>Choose a resource and press Simulate</li>
@@ -175,7 +246,17 @@ export function DigitalTwin() {
 
     <div className={styles.layout}>
       <TwinMap prep={prep} shown={shown} lens={lens} onLens={chooseLens} settings={settings} choice={choice} helped={applied?.helped}
-        progress={progress} county={county} onStation={toggleStation} showAfter={showAfter} onShowAfter={setShowAfter} />
+        progress={progress} county={county} onStation={toggleStation} showAfter={showAfter} onShowAfter={setShowAfter} camera={camera}
+        overlay={tour ? <section className={styles.tour} aria-label="Guided tour">
+          <div className={styles.tourHead}><span>Guided tour · {tour.step + 1} of {TOUR_STEPS}</span>
+            <button onClick={() => setTour(undefined)} aria-label="End the tour">×</button></div>
+          <article key={tour.step} aria-live="polite"><h2>{tour.title}</h2><p>{tour.body}</p></article>
+          <div className={styles.tourDots} aria-hidden="true">{Array.from({ length: TOUR_STEPS }, (_, k) => <i key={k} className={k <= tour.step ? styles.dotOn : undefined} />)}</div>
+          <div className={styles.tourNav}>
+            <button className="secondary-button" disabled={tour.step === 0 || progress !== undefined} onClick={() => tourTo(tour.step - 1)}>Back</button>
+            <button className="primary-button" disabled={progress !== undefined} onClick={() => tourTo(tour.step + 1)}>{progress ? "Simulating…" : tour.step === TOUR_STEPS - 1 ? "Finish" : "Next"}</button>
+          </div>
+        </section> : null} />
       <aside className={styles.panel} aria-label="Scenario controls">
         <label className={styles.field}>Area<select value={county ?? ""} onChange={event => chooseCounty(event.target.value)}>
           <option value="">All of mainland Finland</option>
@@ -233,9 +314,9 @@ export function DigitalTwin() {
 }
 
 type MapProps = { prep?: Prepared; shown?: Week; lens: Lens; onLens: (lens: Lens) => void; settings: Settings; choice?: Choice; helped?: { cell: number; amount: number }[];
-  progress?: Progress; county?: number; onStation: (j: number) => void; showAfter: boolean; onShowAfter: (value: boolean) => void };
+  progress?: Progress; county?: number; onStation: (j: number) => void; showAfter: boolean; onShowAfter: (value: boolean) => void; camera?: Camera; overlay?: ReactNode };
 
-function TwinMap({ prep, shown, lens, onLens, settings, choice, helped, progress, county, onStation, showAfter, onShowAfter }: MapProps) {
+function TwinMap({ prep, shown, lens, onLens, settings, choice, helped, progress, county, onStation, showAfter, onShowAfter, camera, overlay }: MapProps) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
@@ -366,6 +447,12 @@ function TwinMap({ prep, shown, lens, onLens, settings, choice, helped, progress
     map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, pitch: 55, duration: reducedMotion() ? 0 : 2200 });
   }, [ready, county, choice]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !camera) return;
+    map.flyTo({ center: camera.center, zoom: camera.zoom, pitch: camera.pitch, bearing: camera.bearing, duration: reducedMotion() ? 0 : 2600, essential: true });
+  }, [ready, camera]);
+
   const meta = lenses[lens];
   return <div id="twin-map" className={styles.mapCard}>
     <div ref={container} className={styles.map} role="img" aria-label={`3D map of mainland Finland. Column height is residents per 2 km square; colour shows ${meta.label.toLowerCase()}. White columns are health stations.`} />
@@ -384,6 +471,7 @@ function TwinMap({ prep, shown, lens, onLens, settings, choice, helped, progress
         <button aria-pressed={!showAfter} onClick={() => onShowAfter(false)}>Before</button><button aria-pressed={showAfter} onClick={() => onShowAfter(true)}>After</button></div> : null}
       <button className={styles.hudButton} onClick={() => mapRef.current?.flyTo({ ...finland, duration: reducedMotion() ? 0 : 2000 })}>Whole country</button>
     </div>
+    {overlay}
     {tip ? <div className={styles.tip} style={{ left: tip.x + 14, top: tip.y + 14 }}>{tip.text}</div> : null}
   </div>;
 }

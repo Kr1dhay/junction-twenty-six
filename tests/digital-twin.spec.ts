@@ -33,5 +33,18 @@ for (const width of [1600, 390]) {
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+
+    await twin.getByRole("button", { name: "Take the guided tour" }).click();
+    const tour = twin.getByRole("region", { name: "Guided tour" });
+    await expect(tour.getByRole("heading", { name: "This is mainland Finland" })).toBeVisible();
+    await expect(tour.getByText("Guided tour · 1 of 8")).toBeVisible();
+    await tour.getByRole("button", { name: "Next" }).click();
+    await expect(tour.getByRole("heading", { name: "How far is care? Lapland" })).toBeVisible();
+    await expect(twin.getByRole("definition").first()).toBeVisible();
+    await expect(page.getByLabel("Headline figures for Lapland")).toBeVisible();
+    await tour.getByRole("button", { name: "Back" }).click();
+    await expect(tour.getByRole("heading", { name: "This is mainland Finland" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(tour).toHaveCount(0);
   });
 }
