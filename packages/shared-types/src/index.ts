@@ -81,6 +81,10 @@ export const voiceTurnRequestSchema = z.object({
 export type ClinicalProfile = z.infer<typeof clinicalProfileSchema>;
 export type VoiceTurnRequest = z.infer<typeof voiceTurnRequestSchema>;
 export interface VoiceTurnResponse {
+  /** All essential intake answers collected; explicit patient uncertainty counts. */
+  intake_complete: boolean;
+  /** Stop listening after completion or an explicit patient request to stop. */
+  conversation_ended: boolean;
   transcript: string;
   detected_language: string;
   reply: string;

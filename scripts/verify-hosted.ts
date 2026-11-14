@@ -11,7 +11,7 @@ import { z } from "zod";
 const voiceTurnResponseSchema = z.object({
   transcript: z.string(), detected_language: z.string(), reply: z.string(), profile: clinicalProfileSchema,
   audio_base64: z.string().nullable(), audio_mime_type: z.literal("audio/mpeg").nullable(),
-  speech_available: z.boolean(), speech_error: z.string().nullable(),
+  intake_complete: z.boolean(), conversation_ended: z.boolean(), speech_available: z.boolean(), speech_error: z.string().nullable(),
 });
 
 const require = createRequire(import.meta.url);
@@ -71,6 +71,9 @@ async function main() {
       const turn = voiceTurnResponseSchema.parse(await response.json());
       assert.equal(turn.detected_language, language);
       assert.equal(turn.speech_available, true);
+      assert.equal(turn.intake_complete, true);
+      assert.equal(turn.conversation_ended, true);
+      assert.doesNotMatch(turn.reply, /[?؟？]/u);
       assert.ok(turn.audio_base64);
       assert.match(JSON.stringify(turn.profile), /cough/i);
       assert.match(turn.profile.duration_english, /two|2/i);
@@ -82,6 +85,8 @@ async function main() {
     assert.equal(corrected.status, 200);
     const updated = voiceTurnResponseSchema.parse(await corrected.json());
     assert.match(updated.profile.duration_english, /three|3/i);
+    assert.equal(updated.intake_complete, true);
+    assert.equal(updated.conversation_ended, true);
     const audio = await call("/demo/voice/turn", issuer, { consent: true, audio_base64: readFileSync("artifacts/voice-probes/en.mp3").toString("base64"), audio_mime_type: "audio/mpeg" });
     assert.equal(audio.status, 200);
     const spoken = voiceTurnResponseSchema.parse(await audio.json());

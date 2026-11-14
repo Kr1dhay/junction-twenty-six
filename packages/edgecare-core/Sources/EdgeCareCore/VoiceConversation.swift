@@ -47,6 +47,8 @@ public struct VoiceTurnResponse: Decodable, Sendable {
     public let detectedLanguage: String
     public let reply: String
     public let profile: ClinicalProfile
+    public let intakeComplete: Bool
+    public let conversationEnded: Bool
     public let audioBase64: String?
     public let audioMimeType: String?
     public let speechAvailable: Bool
@@ -55,6 +57,22 @@ public struct VoiceTurnResponse: Decodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case transcript, detectedLanguage = "detected_language", reply, profile, audioBase64 = "audio_base64", audioMimeType = "audio_mime_type"
         case speechAvailable = "speech_available", speechError = "speech_error"
+        case intakeComplete = "intake_complete"
+        case conversationEnded = "conversation_ended"
+    }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        transcript = try values.decode(String.self, forKey: .transcript)
+        detectedLanguage = try values.decode(String.self, forKey: .detectedLanguage)
+        reply = try values.decode(String.self, forKey: .reply)
+        profile = try values.decode(ClinicalProfile.self, forKey: .profile)
+        // Older backends may omit completion. The automatic session still has a turn limit.
+        intakeComplete = try values.decodeIfPresent(Bool.self, forKey: .intakeComplete) ?? false
+        conversationEnded = try values.decodeIfPresent(Bool.self, forKey: .conversationEnded) ?? intakeComplete
+        audioBase64 = try values.decodeIfPresent(String.self, forKey: .audioBase64)
+        audioMimeType = try values.decodeIfPresent(String.self, forKey: .audioMimeType)
+        speechAvailable = try values.decode(Bool.self, forKey: .speechAvailable)
+        speechError = try values.decodeIfPresent(String.self, forKey: .speechError)
     }
 }
 /// Uses only our configured backend. Provider keys remain server-side and no upload occurs without consent.

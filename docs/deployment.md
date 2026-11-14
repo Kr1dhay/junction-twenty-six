@@ -19,6 +19,8 @@ python3 scripts/connect-hosted.py --config edgecare-device.json
 
 The command verifies backend health and relaunches installed kiosk, doctor and patient apps with connected mode and the HTTPS URL. It does not require a local server, credential wizard or native rebuild. It reports the actual simulator runtimes already running. Xcode Run may reset the environment to offline defaults; rerun the command after doing that.
 
+When native code changes, append `--rebuild` to run Swift tests, regenerate the Xcode project, build and reinstall the apps on those same booted simulators before connecting. This is required for the hands-free voice update. Build logs are saved under `artifacts/hosted-build/`.
+
 The browser CRM requires the clinician demo token from the same private configuration. A native patient must still consent before any audio or text is sent to providers. Physical devices need their own Xcode signing/install and the same connected environment settings.
 
 ## Verify and redeploy

@@ -5,7 +5,7 @@ import { voiceTurnRequestSchema, type VoiceTurnRequest } from "@edgecare/shared-
 import { POST } from "../src/app/demo/voice/turn/route";
 const config: VoiceConfig = { enabled: true, geminiKey: "gemini-test-secret", geminiModel: "configured-gemini-model", elevenKey: "eleven-test-secret", voiceID: "selected-demo-voice", sttModel: "scribe_v2", ttsModel: "eleven_v3", zeroRetention: false };
 const profile = { concern_english: "A changing skin mark", symptoms_english: ["Skin change"], duration_english: "Two weeks", additional_context_english: "The patient requests clinician review." };
-const generated = (language = "so") => ({ detected_language: language, reply: "Goorma ayaad aragtay isbeddelka?", profile });
+const generated = (language = "so") => ({ detected_language: language, reply: "Waad mahadsan tahay. Waan diiwaangeliyey xogtaada.", profile, intake_complete: true, stop_requested: false });
 const geminiResponse = (value = generated()) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
 const audio: VoiceTurnRequest = { consent: true, audio_base64: Buffer.from("synthetic-audio-bytes").toString("base64"), audio_mime_type: "audio/mp4", language: "en", profile, history: [{ role: "assistant", text: "How can I help?" }] };
 
@@ -138,4 +138,104 @@ test("Runware accepts only the single named structured call, never JSON scraped 
   for (const tools of [[], [validTool, validTool], [{ ...validTool, function: { ...validTool.function, name: "other_tool" } }], [{ ...validTool, function: { ...validTool.function, arguments: `Explanation: ${validTool.function.arguments}` } }]]) {
     await assert.rejects(runVoiceTurn({ consent: true, text: "hello" }, runwareConfig, async () => response(tools, JSON.stringify(generated())), undefined, false), /invalid profile/);
   }
+});
+
+
+test("completion follows essential answers across turns and corrections, without optional questioning", async () => {
+  const firstProfile = { ...profile, duration_english: "", additional_context_english: "" };
+  const first = await runVoiceTurn({ consent: true, text: "A changing skin mark" }, config,
+    async () => geminiResponse({ ...generated("en"), profile: firstProfile, intake_complete: true, reply: "How long has it been changing?" }), undefined, false);
+  assert.equal(first.intake_complete, false);
+  assert.equal(first.profile.duration_english, "");
+  assert.equal(first.reply, "How long has it been changing?");
+  const completeProfile = { ...firstProfile, duration_english: "Two weeks" };
+  const second = await runVoiceTurn({ consent: true, text: "Two weeks", profile: first.profile }, config,
+    async () => geminiResponse({ ...generated("en"), profile: completeProfile, intake_complete: false, reply: "Thank you. Anything else?" }), undefined, false);
+  assert.equal(second.intake_complete, true);
+  assert.doesNotMatch(second.reply, /[?؟？]/u);
+  assert.match(second.reply, /recorded your intake/);
+  assert.equal(second.profile.additional_context_english, "");
+  const corrected = await runVoiceTurn({ consent: true, text: "Actually I do not know how long", profile: second.profile }, config,
+    async () => geminiResponse({ ...generated("en"), profile: { ...completeProfile, duration_english: "Patient does not know the duration" } }), undefined, false);
+  assert.equal(corrected.intake_complete, true);
+  assert.equal(corrected.profile.duration_english, "Patient does not know the duration");
+  const cleared = await runVoiceTurn({ consent: true, text: "That duration was incorrect", profile: second.profile }, config,
+    async () => geminiResponse({ ...generated("en"), profile: firstProfile }), undefined, false);
+  assert.equal(cleared.intake_complete, false);
+});
+
+test("missing essentials never complete or get filled by the server", async () => {
+  for (const missing of [{ concern_english: " " }, { symptoms_english: [] }, { symptoms_english: [" "] }, { duration_english: " " }]) {
+    const partial = { ...profile, ...missing };
+    const result = await runVoiceTurn({ consent: true, text: "I have a concern" }, runwareConfig,
+      async () => runwareResponse({ ...generated("en"), profile: partial, intake_complete: true }), undefined, false);
+    assert.equal(result.intake_complete, false);
+    assert.deepEqual(result.profile, partial);
+  }
+});
+
+test("completed localized turns retain urgent instructions and omit residual questions", async () => {
+  for (const [language, reply, safety] of [
+    ["en", "Seek urgent local medical help now. How long has this happened?", "Seek urgent local medical help now."],
+    ["ar", "اطلب المساعدة الطبية العاجلة الآن. منذ متى؟", "اطلب المساعدة الطبية العاجلة الآن."],
+    ["fi", "Hakeudu heti päivystykseen. Onko muuta?", "Hakeudu heti päivystykseen."],
+    ["so", "Raadi gargaar caafimaad degdeg ah hadda. Wax kale?", "Raadi gargaar caafimaad degdeg ah hadda."],
+    ["ru", "Срочно обратитесь за медицинской помощью. Что ещё?", "Срочно обратитесь за медицинской помощью."],
+  ]) {
+    const result = await runVoiceTurn({ consent: true, text: "Synthetic concern" }, config,
+      async () => geminiResponse({ ...generated(language), reply: reply! }), undefined, false);
+    assert.equal(result.intake_complete, true);
+    assert.ok(result.reply.includes(safety!));
+    assert.doesNotMatch(result.reply, /[?؟？]/u);
+  }
+});
+
+test("both providers require a strict completion boolean and instructions forbid inferred answers", async () => {
+  for (const provider of [config, runwareConfig]) {
+    await runVoiceTurn({ consent: true, text: "Synthetic concern" }, provider, async (_url, init) => {
+      const body = JSON.parse(init!.body as string);
+      const schema = provider.provider === "runware" ? body.tools[0].function.parameters : body.generationConfig.responseJsonSchema;
+      const prompt = provider.provider === "runware" ? body.messages[0].content : body.systemInstruction.parts[0].text;
+      assert.equal(schema.properties.intake_complete.type, "boolean");
+      assert.ok(schema.required.includes("intake_complete"));
+      assert.equal(schema.properties.stop_requested.type, "boolean");
+      assert.ok(schema.required.includes("stop_requested"));
+      assert.match(prompt, /never infer an unknown answer from silence/);
+      assert.match(prompt, /never as a routine extra question/);
+      assert.match(prompt, /explicit request to stop must be respected/);
+      return provider.provider === "runware" ? runwareResponse() : geminiResponse();
+    }, undefined, false);
+    for (const field of ["intake_complete", "stop_requested"]) for (const invalid of [undefined, "true", 1, null]) {
+      const value = { ...generated(), [field]: invalid };
+      await assert.rejects(runVoiceTurn({ consent: true, text: "Synthetic concern" }, provider,
+        async () => provider.provider === "runware" ? runwareResponse(value) : geminiResponse(value as never), undefined, false), /invalid profile/);
+    }
+  }
+});
+
+
+test("explicit stop ends conversation without completing or inventing missing essentials", async () => {
+  const incomplete = { ...profile, symptoms_english: [], duration_english: "" };
+  for (const provider of [config, runwareConfig]) {
+    const value = { ...generated("en"), stop_requested: true, intake_complete: false, profile: incomplete, reply: "How long has this lasted?" };
+    const result = await runVoiceTurn({ consent: true, text: "Please stop now", profile: incomplete }, provider,
+      async () => provider.provider === "runware" ? runwareResponse(value) : geminiResponse(value), undefined, false);
+    assert.equal(result.conversation_ended, true);
+    assert.equal(result.intake_complete, false);
+    assert.deepEqual(result.profile, incomplete);
+    assert.equal(result.reply, "We will stop here.");
+    const continuing = { ...value, stop_requested: false };
+    const next = await runVoiceTurn({ consent: true, text: "Continue", profile: incomplete }, provider,
+      async () => provider.provider === "runware" ? runwareResponse(continuing) : geminiResponse(continuing), undefined, false);
+    assert.equal(next.conversation_ended, false);
+  }
+});
+
+test("unsupported closing languages never return a question or substitute English", async () => {
+  const safe = await runVoiceTurn({ consent: true, text: "Une toux depuis deux jours" }, config,
+    async () => geminiResponse({ ...generated("fr"), reply: "Merci. Autre chose?" }), undefined, false);
+  assert.equal(safe.conversation_ended, true);
+  assert.equal(safe.reply, "Merci.");
+  await assert.rejects(runVoiceTurn({ consent: true, text: "Une toux depuis deux jours" }, config,
+    async () => geminiResponse({ ...generated("fr"), reply: "Autre chose?" }), undefined, false), /safe closing/);
 });

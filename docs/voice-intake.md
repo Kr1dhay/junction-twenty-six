@@ -1,6 +1,6 @@
 # Conversational voice and the English profile
 
-The kiosk and patient app offer two intake modes. The structured form works offline; the conversational mode uses short recorded or typed turns, remembers the current conversation, asks follow-up questions and updates an English clinical profile.
+The kiosk and patient app offer two intake modes. The structured form works offline; the conversational mode listens hands-free after one start action, remembers the current conversation, asks for missing information and updates an English clinical profile. Typed turns remain available.
 
 ## Enable the connected voice service
 
@@ -25,12 +25,16 @@ Select a Gemini model available to your account that supports `generateContent` 
 
 The hosted deployment uses Gemini through Runware instead of a direct Google key: `VOICE_LLM_PROVIDER=runware`, `RUNWARE_API_KEY` and `RUNWARE_MODEL=google:gemini@3-flash`. The verified Flash model returns structured intake profiles through Runware's [compatible API](https://runware.ai/docs/tools/compatible-apis). The Pro model produced prose alongside JSON in a live test, so it was not selected. The service validates every result and never silently switches models. Language-specific ElevenLabs voices and their verification evidence are listed in [voice selection](voice-selection.md).
 
-The user first gives explicit consent to external processing. Each recording is limited to 30 seconds. Tap the recording control again to send a turn, then hear the reply and continue. Typed conversational turns use the same profile and conversation without speech recognition. Corrections update the current profile before referral enrollment.
+The user first gives explicit consent to external processing, then taps **Start conversation** once. A local audio-level detector sends each answer after 1.5 seconds of quiet following speech; recordings are limited to 30 seconds. The microphone stays off during processing and playback, then resumes after the reply finishes. Twelve seconds without speech pauses the session without uploading silence. Pause, backgrounding, audio interruption, revoked consent, offline mode and provider/playback errors stop automatic listening. The patient explicitly starts again to resume. Audio-level detection needs testing on the target microphones and in the intended room.
+
+The required information is the main concern, symptoms (or the relevant concern category for screening/letter requests), and duration. An explicit "I don't know" is recorded as uncertainty; missing answers are never supplied by the server. Optional context is not required. Once these essentials are present, the API returns `intake_complete=true` and `conversation_ended=true`, speaks a short closing without another question, and the microphone remains off. A spoken request to stop sets `conversation_ended=true` without claiming the profile is complete. Patients review the English profile and tap Continue; **Add or change details** deliberately reopens listening for corrections. Automatic conversation also pauses after six answers if essentials remain unclear.
+
+Typed turns use the same profile and conversation without speech recognition, and do not activate automatic listening. A valid text/profile response without speech pauses the hands-free session. Corrections update the current profile before referral enrollment.
 
 ## Language behavior
 
 1. ElevenLabs Scribe receives the audio **without a language hint**, and returns the detected language and confidence. Unclear language detection asks the patient to retry or use text.
-2. The conversational model receives the transcript, recent turns and existing profile. It returns English concern/symptoms/duration/context plus a reply in the detected language. Corrections are applied to the existing profile.
+2. The conversational model receives the transcript, recent turns and existing profile. It returns English concern/symptoms/duration/context, a reply in the detected language, and completion/stop signals. The server determines profile completeness from the essential fields. Corrections are applied to the existing profile.
 3. ElevenLabs speaks that reply in the detected language. Use `ELEVENLABS_VOICE_ID_EN`, `_FI`, `_SO`, `_AR` or `_RU` to select a particular voice for a language; otherwise `ELEVENLABS_VOICE_ID` is used. This selects a synthetic voice, not a clone of the patient.
 
 Eleven v3 supports the five demo languages. Multilingual v2 omits Somali, so it is not the default. Unsupported synthesis or a TTS failure returns the valid text/profile turn with a visible speech-unavailable state; it never substitutes English audio for another language. [Speech recognition API](https://elevenlabs.io/docs/api-reference/speech-to-text/convert), [voice models](https://elevenlabs.io/docs/overview/models), [speech synthesis API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert).
@@ -45,6 +49,8 @@ Missing keys, disabled cloud mode, poor connectivity or denied microphone access
 
 ## Verify with synthetic content
 
-Use a new session for each language: English, Finnish, Somali, Arabic and Russian. Describe a synthetic concern without selecting a speech language. Confirm that the transcript and spoken reply match the language, answer a duration question, then correct the duration in a later turn. The review and enrolled clinician summary must contain the corrected English duration. Switch to the form and complete a separate enrollment offline.
+Rebuild the native apps after pulling these changes: `python3 scripts/connect-hosted.py --config edgecare-device.json --rebuild` uses the existing booted simulators, runs Swift tests, builds and installs each app, then connects to the hosted backend.
+
+Use a new session for each language: English, Finnish, Somali, Arabic and Russian. Start once and describe a synthetic concern without selecting a speech language. Pause and confirm automatic submission, then confirm that listening resumes only after the reply. Answer a duration question; the closing must leave the microphone off and the English profile complete. Explicitly reopen to correct the duration. Test silence, a spoken stop before completion, Pause during recording/playback/network processing, consent withdrawal, backgrounding and offline mode; none should restart the microphone. The review and enrolled clinician summary must contain the corrected English duration. Switch to the form and complete a separate enrollment offline. Somali automatic detection remains unverified; see the recorded failures in [voice selection](voice-selection.md).
 
 Automated provider tests validate detection parameters, voice selection, English-profile transport, consent/configuration gates, language mismatches and failures using mocked responses. They do not establish live transcription/translation quality. Actual microphone playback and provider-account checks must be run on the Mac/devices with configured credentials.

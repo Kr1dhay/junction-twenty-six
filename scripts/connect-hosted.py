@@ -10,10 +10,31 @@ import sys
 import urllib.parse
 import urllib.request
 
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMES = {"kiosk": "EdgeCareKiosk", "doctor": "EdgeCareDoctor", "patient": "EdgeCarePatient"}
+
+
+def rebuild(role, device):
+    scheme = SCHEMES[role]
+    derived = ROOT / "artifacts" / "hosted-build" / scheme
+    derived.mkdir(parents=True, exist_ok=True)
+    log = derived / "build.log"
+    print("Building {} for {} (log: {})".format(scheme, device["name"], log), flush=True)
+    with log.open("w") as output:
+        subprocess.run(["xcodebuild", "-project", "EdgeCare.xcodeproj", "-scheme", scheme,
+                        "-configuration", "Debug", "-sdk", "iphonesimulator", "-destination", "id=" + device["udid"],
+                        "-derivedDataPath", str(derived), "CODE_SIGNING_ALLOWED=NO", "build"],
+                       cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=True)
+    app = derived / "Build" / "Products" / "Debug-iphonesimulator" / (scheme + ".app")
+    if not app.is_dir():
+        raise ValueError("Built app is missing: " + str(app))
+    subprocess.run(["xcrun", "simctl", "install", device["udid"], str(app)], check=True)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, required=True, help="Private device JSON supplied with the deployment")
+    parser.add_argument("--config", type=Path, required=True, help="Device JSON supplied with the deployment")
+    parser.add_argument("--rebuild", action="store_true", help="Test, rebuild and reinstall apps before reconnecting")
     args = parser.parse_args()
     if platform.system() != "Darwin":
         raise ValueError("Run this command on the Mac with your booted simulators.")
@@ -33,6 +54,7 @@ def main():
     for key in ["EDGECARE_ISSUER_TOKEN", "EDGECARE_CLINICIAN_TOKEN"]:
         environment["SIMCTL_CHILD_" + key] = config[key]
     inventory = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "booted", "--json"], text=True))
+    prepared = False
     count = 0
     for runtime, devices in inventory["devices"].items():
         for device in devices:
@@ -43,6 +65,12 @@ def main():
                 installed = subprocess.run(["xcrun", "simctl", "get_app_container", device["udid"], bundle, "app"], capture_output=True)
                 if installed.returncode:
                     continue
+                if args.rebuild:
+                    if not prepared:
+                        subprocess.run(["swift", "test", "--package-path", "packages/edgecare-core"], cwd=ROOT, check=True)
+                        subprocess.run(["xcodegen", "generate", "--spec", "project.yml"], cwd=ROOT, check=True)
+                        prepared = True
+                    rebuild(role, device)
                 subprocess.run(["xcrun", "simctl", "launch", "--terminate-running-process", device["udid"], bundle], env=environment, check=True)
                 print("Connected {} on {} ({}) to {}".format(role, device["name"], runtime, origin))
                 count += 1

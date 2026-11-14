@@ -12,6 +12,7 @@ import EdgeCareCore
     public var clinicalProfile = ClinicalProfile()
     public var voiceHistory: [VoiceConversationTurn] = []
     public var voiceConsent = false
+    public var voiceIntakeComplete = false
     public var guidance: TriageGuidance?
     public var busy = false
     public var step = 0
@@ -59,7 +60,7 @@ import EdgeCareCore
     }
     public func reset() {
         generation += 1; busy = false
-        inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false
+        inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false; voiceIntakeComplete = false
         concern = ""; guidance = nil; step = 0; urgent = nil; persistent = nil; letterText = ""; lesionPresent = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
         language = "en"; languageChosen = false; languageDetected = false; lastActivity = Date()
