@@ -29,6 +29,10 @@ import EdgeCareCore
     public var confirmation = ""
     public var understood = false
     public var record: ReferralRecord?
+    public var editingReferral: ReferralEditSession?
+    public var isUpdatingReferral: Bool { editingReferral != nil }
+    public var didUpdateReferral = false
+    private var pendingUpdate: ReferralUpdate?
     public var error: String?
     public var languageChosen = false
     public var languageDetected = false
@@ -43,6 +47,21 @@ import EdgeCareCore
     public let source: ReferralSource
     private let triage: any TriageEngine
     public init(source: ReferralSource = .patientApp, triage: any TriageEngine = OnDeviceTriageEngine()) { self.source = source; self.triage = triage }
+    public func loadExistingReferral(_ session: ReferralEditSession) {
+        reset()
+        editingReferral = session; clinicalProfile = session.clinicalProfile
+        let marker = "\nPatient notes (original language): "
+        concern = session.concern.components(separatedBy: marker).last ?? session.concern
+        language = session.original.language; languageChosen = true
+        letterText = session.letterText ?? ""; lesionPresent = session.original.lesionPhoto.present
+        let mapping = ["skin_change": "skin_change", "lump_or_swelling": "lump", "cough": "persistent_cough", "unexplained_bleeding": "unexplained_bleeding", "screening_letter": "screening_letter"]
+        selectedSymptoms = Set(session.original.symptoms.compactMap { mapping[$0] })
+        if selectedSymptoms.isEmpty { selectedSymptoms = ["other_concern"] }
+        duration = "keep_existing"; inputMode = "voice"; voiceIntakeComplete = true
+        voiceHistory = [VoiceConversationTurn(role: "assistant", text: Copy.text("existingLoaded", language))]
+        step = 1
+    }
+    public func discardPreparedUpdate() { pendingUpdate = nil }
     public func beginSafetyQuestions() {
         guard !busy else { return }
         let input = SafetyInput(profile: clinicalProfile, selectedSymptoms: selectedSymptoms, concern: concern)
@@ -121,26 +140,40 @@ import EdgeCareCore
         do {
             let result = try await triage.guidance(for: structured, language: language)
             guard generation == currentGeneration else { return }
-            guidance = annotated(result); step = 5
+            guidance = annotated(result); pendingUpdate = nil; step = 5
         }
         catch { if generation == currentGeneration { self.error = Copy.text("error", language) } }
     }
     public func enroll(using app: AppSession) async {
         guard let session = app.session, let guidance else { error = Copy.text("error", language); return }
-        guard passcode.count == 4, passcode == confirmation, understood else { error = Copy.text("pinMismatch", language); return }
+        if !isUpdatingReferral {
+            guard passcode.count == 4, passcode == confirmation, understood else { error = Copy.text("pinMismatch", language); return }
+        }
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
         do {
             let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile)
-            let sealed = try await session.enroll(draft: draft, strokes: strokes, passcode: passcode, confirmation: confirmation)
+            let sealed: ReferralRecord
+            if let editingReferral {
+                if pendingUpdate == nil { pendingUpdate = try EnrollmentService().prepareUpdate(session: editingReferral, draft: draft) }
+                guard let pendingUpdate else { throw CoreError.invalidConfiguration }
+                sealed = try await session.updateReferral(pendingUpdate, authorization: editingReferral)
+            } else { sealed = try await session.enroll(draft: draft, strokes: strokes, passcode: passcode, confirmation: confirmation) }
             guard generation == currentGeneration else { return }
+            didUpdateReferral = isUpdatingReferral; editingReferral = nil; pendingUpdate = nil
             record = sealed
             passcode = ""; confirmation = ""; strokes = []; step = 7
             await app.refresh()
-        } catch { if generation == currentGeneration { self.error = Copy.text("error", language) + " (\(error))" } }
+        } catch {
+            if generation == currentGeneration {
+                self.error = isUpdatingReferral && (error as? CoreError) == .conflict
+                    ? Copy.text("updateConflict", language) : Copy.text("error", language) + " (\(error))"
+            }
+        }
     }
     public func reset() {
         generation += 1; busy = false
+        editingReferral = nil; pendingUpdate = nil; didUpdateReferral = false
         inputMode = "form"; selectedSymptoms = []; duration = "unknown"; severity = "unknown"; clinicalProfile = ClinicalProfile(); voiceHistory = []; voiceConsent = false; voiceIntakeComplete = false
         concern = ""; guidance = nil; step = 0; safety.reset(plan: []); safetyInput = nil; emergencyAdvicePending = false; continuedAfterEmergencyAdvice = false; letterText = ""; lesionPresent = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
@@ -203,13 +236,16 @@ public struct IntakeView: View {
         .environment(\.layoutDirection, model.language.lowercased().hasPrefix("ar") ? .rightToLeft : .leftToRight)
         .onChange(of: model.language) { _, language in model.lastActivity = Date(); speech.stop(); app.language = language }
         .onChange(of: model.concern) { _, text in
+            model.discardPreparedUpdate()
             model.lastActivity = Date()
             if !model.languageChosen, !model.languageDetected, let language = detectedLanguage(text) {
                 model.language = language; model.languageDetected = true
             }
         }
         .onChange(of: model.step) { _, _ in model.lastActivity = Date(); speech.stop() }
-        .onChange(of: model.letterText) { _, _ in model.lastActivity = Date() }
+        .onChange(of: model.letterText) { _, _ in model.lastActivity = Date(); model.discardPreparedUpdate() }
+        .onChange(of: model.clinicalProfile) { _, _ in model.discardPreparedUpdate() }
+        .onChange(of: model.lesionPresent) { _, _ in model.discardPreparedUpdate() }
         .onChange(of: model.passcode) { _, _ in model.lastActivity = Date() }
         .onChange(of: model.confirmation) { _, _ in model.lastActivity = Date() }
         .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in model.lastActivity = Date(); idleSoon = false })
@@ -230,17 +266,29 @@ public struct IntakeView: View {
                 }
             }
         }
-        .onDisappear { speech.stop(); model.passcode = ""; model.confirmation = "" }
+        .onDisappear {
+            speech.stop(); model.passcode = ""; model.confirmation = ""
+            if model.isUpdatingReferral { model.reset() }
+        }
     }
     @ViewBuilder private var content: some View {
         switch model.step {
+        case -1:
+            ExistingReferralLookupView(model: model, app: app)
         case 0:
             Image(systemName: "hand.raised.heart").font(.system(size: 48)).foregroundStyle(EdgeCareStyle.mulberry).accessibilityHidden(true)
             heading(t("welcome"))
             Text(t("anonymous")).font(.title3.weight(.semibold))
             Text(t("privacy")).foregroundStyle(.secondary)
-            primary(t("start")) { model.step = 1 }
+            primary(t(kiosk ? "createNew" : "start")) { model.step = 1 }
+            if kiosk {
+                Button(t("updateExisting")) { model.step = -1 }.buttonStyle(.bordered).frame(minHeight: 48)
+            }
         case 1:
+            if let editing = model.editingReferral {
+                Label(t("updatingExisting"), systemImage: "pencil.circle").font(.headline)
+                Text(editing.original.id).font(.caption.monospaced()).textSelection(.enabled)
+            }
             heading(t("concernTitle"))
             Text(t("anonymous")).foregroundStyle(.secondary)
             Picker(t("inputMode"), selection: $model.inputMode) {
@@ -282,34 +330,43 @@ public struct IntakeView: View {
                     emergencyNotice
                     Text(t("emergencyContinueExplanation"))
                     primary(t("continueReferral")) { model.proceedToReferral() }
-                } else { primary(t("seal")) { model.proceedToReferral() } }
+                } else { primary(t(model.isUpdatingReferral ? "reviewUpdate" : "seal")) { model.proceedToReferral() } }
             }
         case 6:
-            heading(t("seal"))
-            Text(t("signature")).font(.headline)
-            SignaturePad(strokes: $model.strokes, language: model.language)
-            PINField(title: t("pin"), value: $model.passcode)
-            PINField(title: t("confirmPin"), value: $model.confirmation)
-            Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark").font(.body.weight(.medium))
-            Toggle(t("understand"), isOn: $model.understood).padding(.vertical, 8)
-            speechControls(prompt: t("noReset"), input: false)
-            if model.passcode.count == 4 && model.confirmation.count == 4 && model.passcode != model.confirmation {
-                Text(t("pinMismatch")).foregroundStyle(.red)
+            if model.isUpdatingReferral {
+                heading(t("reviewUpdate"))
+                Text(t("updateKeepsCredentials"))
+                Text(model.clinicalProfile.clinicianSummary).textSelection(.enabled)
+                primary(t("saveUpdate")) { Task { await model.enroll(using: app) } }.disabled(model.busy || app.session == nil)
+            } else {
+                heading(t("seal"))
+                Text(t("signature")).font(.headline)
+                SignaturePad(strokes: $model.strokes, language: model.language)
+                PINField(title: t("pin"), value: $model.passcode)
+                PINField(title: t("confirmPin"), value: $model.confirmation)
+                Label(t("noReset"), systemImage: "lock.trianglebadge.exclamationmark").font(.body.weight(.medium))
+                Toggle(t("understand"), isOn: $model.understood).padding(.vertical, 8)
+                speechControls(prompt: t("noReset"), input: false)
+                if model.passcode.count == 4 && model.confirmation.count == 4 && model.passcode != model.confirmation {
+                    Text(t("pinMismatch")).foregroundStyle(.red)
+                }
+                primary(t("seal")) { Task { await model.enroll(using: app) } }
+                    .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
+                DisclosureGroup(t("demoDisclosure")) {
+                    Text(t("demoDetail")).font(.caption)
+                    Button(t("demoUse")) {
+                        model.strokes = DemoData.signatureStrokes(); model.passcode = "1234"; model.confirmation = "1234"
+                    }.frame(minHeight: 48)
+                }.font(.footnote)
             }
-            primary(t("seal")) { Task { await model.enroll(using: app) } }
-                .disabled(model.busy || model.strokes.flatMap { $0 }.count < 4 || model.passcode.count != 4 || model.passcode != model.confirmation || !model.understood || app.session == nil)
-            DisclosureGroup(t("demoDisclosure")) {
-                Text(t("demoDetail")).font(.caption)
-                Button(t("demoUse")) {
-                    model.strokes = DemoData.signatureStrokes(); model.passcode = "1234"; model.confirmation = "1234"
-                }.frame(minHeight: 48)
-            }.font(.footnote)
         case 7:
-            heading(t("ready"))
+            heading(t(model.didUpdateReferral ? "recordUpdated" : "ready"))
             if let record = model.record {
                 ReferralHandoff(record: record, language: model.language)
                 let walletState = app.wallet.first(where: { $0.id == record.id })?.state
-                Text(t(app.connected ? (walletState == .available ? "available" : "pending") : "local")).font(.footnote).foregroundStyle(.secondary)
+                if !model.didUpdateReferral {
+                    Text(t(app.connected ? (walletState == .available ? "available" : "pending") : "local")).font(.footnote).foregroundStyle(.secondary)
+                }
                 if app.connected {
                     Button(t("sync")) { Task { await app.sync() } }.buttonStyle(.bordered).disabled(app.busy)
                     if let message = app.message { Text(message).font(.footnote) }

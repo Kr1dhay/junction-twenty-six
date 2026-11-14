@@ -6,9 +6,11 @@ public protocol ReferralAPI: Sendable {
     func submit(_ record: ReferralRecord) async throws
     func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord
     func list() async throws -> [ReferralRecord]
+    func update(_ update: ReferralUpdate) async throws
 }
 public extension ReferralAPI {
     func list() async throws -> [ReferralRecord] { throw CoreError.notConfigured }
+    func update(_ update: ReferralUpdate) async throws { throw CoreError.notConfigured }
 }
 public actor MockReferralAPI: ReferralAPI {
     private var records: [String: ReferralRecord]
@@ -18,6 +20,13 @@ public actor MockReferralAPI: ReferralAPI {
         records[record.id] = record
     }
     public func list() -> [ReferralRecord] { records.values.sorted { $0.createdAt > $1.createdAt } }
+    public func update(_ update: ReferralUpdate) throws {
+        guard update.preservesIdentity else { throw CoreError.conflict }
+        guard let current = records[update.record.id] else { throw CoreError.notFound }
+        if current == update.record { return }
+        guard current == update.expected else { throw CoreError.conflict }
+        records[update.record.id] = update.record
+    }
     public func fetchVerificationEnvelope(id: String) throws -> ReferralRecord {
         guard let record = records[id] else { throw CoreError.notFound }; return record
     }
@@ -63,6 +72,10 @@ public struct RESTReferralAPI: ReferralAPI {
     }
     public func submit(_ record: ReferralRecord) async throws {
         _ = try await transport.request(path: ["referrals"], method: "POST", body: try JSONEncoder().encode(record), issuer: true)
+    }
+    public func update(_ update: ReferralUpdate) async throws {
+        guard update.preservesIdentity else { throw CoreError.conflict }
+        _ = try await transport.request(path: ["referrals", update.record.id], method: "PATCH", body: try JSONEncoder().encode(update), issuer: true)
     }
     public func fetchVerificationEnvelope(id: String) async throws -> ReferralRecord {
         guard let uuid = UUID(uuidString: id) else { throw CoreError.notFound }

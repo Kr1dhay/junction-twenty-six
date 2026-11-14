@@ -81,6 +81,7 @@ struct StructuredConcernForm: View {
                 })).frame(minHeight: 44)
             }
             Picker(t("profileDuration"), selection: $model.duration) {
+                if model.isUpdatingReferral { Text(model.clinicalProfile.durationEnglish).tag("keep_existing") }
                 Text(t("unsure")).tag("unknown")
                 Text(t("shortDuration")).tag("less_than_three_weeks")
                 Text(t("longDuration")).tag("three_weeks_or_longer")
@@ -97,7 +98,8 @@ struct StructuredConcernForm: View {
     }
     private func updateProfile() {
         let symptoms = model.selectedSymptoms.sorted().compactMap { Self.englishSymptoms[$0] }
-        model.clinicalProfile = ClinicalProfile(concernEnglish: symptoms.joined(separator: "; "), symptomsEnglish: symptoms, durationEnglish: ["unknown": "Not sure", "less_than_three_weeks": "Less than three weeks", "three_weeks_or_longer": "Three weeks or longer"][model.duration] ?? "Not sure", additionalContextEnglish: "Reported severity: \(model.severity). Structured, patient-selected intake; clinician review required.")
+        let duration = model.duration == "keep_existing" ? model.clinicalProfile.durationEnglish : ["unknown": "Not sure", "less_than_three_weeks": "Less than three weeks", "three_weeks_or_longer": "Three weeks or longer"][model.duration] ?? "Not sure"
+        model.clinicalProfile = ClinicalProfile(concernEnglish: symptoms.joined(separator: "; "), symptomsEnglish: symptoms, durationEnglish: duration, additionalContextEnglish: "Reported severity: \(model.severity). Structured, patient-selected intake; clinician review required.")
         model.lastActivity = Date()
     }
 }

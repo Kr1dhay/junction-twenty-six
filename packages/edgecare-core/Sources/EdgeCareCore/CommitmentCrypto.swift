@@ -30,4 +30,12 @@ public enum CommitmentCrypto {
     public static func decrypt(_ ciphertext: Data, passcode: String, salt: Data) throws -> Data {
         try AES.GCM.open(AES.GCM.SealedBox(combined: ciphertext), using: key(passcode: passcode, salt: salt))
     }
+    static func editingKey(passcode: String, salt: Data) throws -> Data {
+        try key(passcode: passcode, salt: salt).withUnsafeBytes { Data($0) }
+    }
+    static func encryptUpdate(_ plaintext: Data, key: Data) throws -> Data {
+        guard key.count == 32 else { throw CoreError.verificationFailed }
+        guard let combined = try AES.GCM.seal(plaintext, using: SymmetricKey(data: key)).combined else { throw CoreError.verificationFailed }
+        return combined
+    }
 }

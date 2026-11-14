@@ -35,6 +35,21 @@ test("hosted Postgres survives new instances and serializes enrollment, registry
     const crm = await reopened.get(record.referral_id);
     assert.equal(Object.hasOwn(crm!, "patient_name"), false);
     assert.deepEqual(await reopened.verificationEnvelope(record.referral_id), record);
+    const updated = { ...record, free_text_summary: "Updated English clinical profile" };
+    await a.update(record, updated);
+    await b.update(record, updated);
+    assert.deepEqual(await reopened.verificationEnvelope(record.referral_id), updated);
+    assert.equal((await reopened.get(record.referral_id))?.status, "spent");
+    assert.deepEqual(await reopened.read(record.referral_id), before);
+    await assert.rejects(b.update(record, { ...record, free_text_summary: "Stale update" }), /changed/);
+    await assert.rejects(b.update(updated, { ...updated, commitment_hash: "f".repeat(64) }), /identity/);
+    const updates = await Promise.allSettled([
+      a.update(updated, { ...updated, free_text_summary: "Concurrent edit A" }),
+      b.update(updated, { ...updated, free_text_summary: "Concurrent edit B" }),
+    ]);
+    assert.equal(updates.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(updates.filter(result => result.status === "rejected").length, 1);
+    assert.equal((await reopened.get(record.referral_id))?.status, "spent");
     const expired = { ...record, referral_id: ids[1]! };
     await a.create(expired); await a.create(expired.referral_id, expired.commitment_hash);
     await assert.rejects(a.spend(expired.referral_id), /expired/);

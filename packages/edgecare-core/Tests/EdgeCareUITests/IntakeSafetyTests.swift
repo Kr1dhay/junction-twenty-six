@@ -117,4 +117,26 @@ import EdgeCareCore
         model.answerSafetyQuestion(.no)
         XCTAssertEqual(model.safety, state, "An in-flight save or triage cannot navigate to stale answers")
     }
+    func testExistingReferralLoadsEnglishProfileAndClearsUnlockedSessionOnReset() throws {
+        let profile = ClinicalProfile(concernEnglish: "Cough", symptomsEnglish: ["Cough"], durationEnglish: "Two days")
+        let draft = EnrollmentDraft(source: .kiosk, language: "fi", concern: "English summary\nPatient notes (original language): Yskää",
+            guidance: TriageGuidance(message: "Synthetic guidance", symptoms: ["cough"]), letterText: "Synthetic letter", clinicalProfile: profile)
+        let original = try EnrollmentService().enroll(draft: draft, strokes: DemoData.signatureStrokes(), passcode: "0123", confirmation: "0123")
+        let edit = try EnrollmentService().unlock(record: original, passcode: "0123", strokes: DemoData.signatureStrokes())
+        let model = IntakeViewModel(source: .kiosk)
+        model.loadExistingReferral(edit)
+        XCTAssertTrue(model.isUpdatingReferral)
+        XCTAssertEqual(model.editingReferral?.original.id, original.id)
+        XCTAssertEqual(model.clinicalProfile, profile)
+        XCTAssertEqual(model.concern, "Yskää")
+        XCTAssertEqual(model.letterText, "Synthetic letter")
+        XCTAssertEqual(model.selectedSymptoms, ["persistent_cough"])
+        XCTAssertEqual(model.language, "fi")
+        XCTAssertEqual(model.step, 1)
+        XCTAssertTrue(model.passcode.isEmpty)
+        XCTAssertTrue(model.strokes.isEmpty)
+        model.reset()
+        XCTAssertFalse(model.isUpdatingReferral)
+        XCTAssertNil(model.editingReferral)
+    }
 }

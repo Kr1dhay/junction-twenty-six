@@ -109,6 +109,17 @@ public actor NativeSession {
         _ = try? await sync()
         return record
     }
+    public func updateReferral(_ update: ReferralUpdate, authorization: ReferralEditSession) async throws -> ReferralRecord {
+        try enforceLocalAdapters()
+        guard configuration.demoMode || online else { throw CoreError.offline }
+        guard update.preservesIdentity, update.expected == authorization.original else { throw CoreError.conflict }
+        let pending = await outbox.pending()
+        guard !pending.contains(where: { $0.id == update.record.id }) else { throw CoreError.conflict }
+        try await api.update(update)
+        let account = try? await chain.read(referralID: update.record.id)
+        try await wallet.store(update.record, state: account?.spent == true || update.record.status == .spent ? .spent : .available, account: account)
+        return update.record
+    }
     public func referrals() async throws -> [ReferralRecord] {
         try enforceLocalAdapters()
         guard configuration.demoMode || online else { return await wallet.records() }

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { toCRMReferral, type ChainClient, type CommitmentAccount, type ReferralRecord, type ReferralRepository } from "@edgecare/shared-types";
+import { preservesReferralIdentity } from "./referral-update";
 
 export class ConflictError extends Error {}
 export class MissingError extends Error {}
@@ -55,6 +56,16 @@ export class DemoRepository implements ReferralRepository, ChainClient {
   read(id: string): CommitmentAccount | undefined {
     const row = this.db.prepare("SELECT * FROM commitments WHERE id = ?").get(id) as { hash: string; spent: number; created_slot: number; spent_slot: number | null } | undefined;
     return row && { commitment_hash: row.hash, spent: !!row.spent, created_slot: row.created_slot, spent_slot: row.spent_slot };
+  }
+  update(expected: ReferralRecord, record: ReferralRecord) {
+    if (!preservesReferralIdentity(expected, record)) throw new ConflictError("An update cannot change referral identity, credentials, expiry or status");
+    this.db.transaction(() => {
+      const current = this.verificationEnvelope(record.referral_id);
+      if (!current) throw new MissingError("Referral not found");
+      if (isDeepStrictEqual(current, record)) return; // Retry after a lost response.
+      if (!isDeepStrictEqual(current, expected)) throw new ConflictError("Referral changed. Verify and reload it before editing again");
+      this.db.prepare("UPDATE referrals SET payload = ? WHERE id = ?").run(JSON.stringify(record), record.referral_id);
+    }).immediate();
   }
   spend(id: string, expectedHash?: string, operationID?: string) {
     this.db.transaction(() => {

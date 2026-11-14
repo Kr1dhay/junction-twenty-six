@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { isDeepStrictEqual } from "node:util";
 import { toCRMReferral, type ReferralRecord, type CommitmentAccount } from "@edgecare/shared-types";
 import { ConflictError, MissingError } from "./repository";
+import { preservesReferralIdentity } from "./referral-update";
 
 neonConfig.webSocketConstructor = WebSocket;
 type Row = { id: string; payload: ReferralRecord | null; hash: string | null; spent: boolean; created_slot: string | null; spent_slot: string | null; spent_at: string | null; operation_id: string | null };
@@ -82,6 +83,16 @@ export class PostgresRepository {
   async verificationEnvelope(id: string) {
     await this.ready();
     return this.connection(client => this.envelope(client, id));
+  }
+  async update(expected: ReferralRecord, record: ReferralRecord) {
+    if (!preservesReferralIdentity(expected, record)) throw new ConflictError("An update cannot change referral identity, credentials, expiry or status");
+    await this.mutate(record.referral_id, async client => {
+      const current = await this.envelope(client, record.referral_id);
+      if (!current) throw new MissingError("Referral not found");
+      if (isDeepStrictEqual(current, record)) return;
+      if (!isDeepStrictEqual(current, expected)) throw new ConflictError("Referral changed. Verify and reload it before editing again");
+      await client.query("UPDATE edgecare_demo_referrals SET payload = $2::jsonb WHERE id = $1", [record.referral_id, JSON.stringify(record)]);
+    });
   }
   async read(id: string): Promise<CommitmentAccount | undefined> {
     await this.ready();
