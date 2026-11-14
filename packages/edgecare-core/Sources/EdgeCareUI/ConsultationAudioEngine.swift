@@ -35,12 +35,27 @@ private final class TapConverter: @unchecked Sendable {
     let converter: AVAudioConverter
     let output: AVAudioFormat
     var chunker = PCMChunker()
+    #if DEBUG
+    private var debugPeak: Float = 0
+    private var debugBuffers = 0
+    #endif
     init?(input: AVAudioFormat) {
         guard let output = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true),
               let converter = AVAudioConverter(from: input, to: output) else { return nil }
         self.converter = converter; self.output = output
     }
     func convert(_ buffer: AVAudioPCMBuffer) -> [Data] {
+        #if DEBUG
+        // Diagnostics only: a peak near 0 means the microphone is delivering silence.
+        if let samples = buffer.floatChannelData?[0] {
+            for index in 0..<Int(buffer.frameLength) { debugPeak = max(debugPeak, abs(samples[index])) }
+        }
+        debugBuffers += 1
+        if debugBuffers % 20 == 0 {
+            consultationAudioLog.debug("mic peak \(self.debugPeak, format: .fixed(precision: 4)) over \(20) buffers")
+            debugPeak = 0
+        }
+        #endif
         let ratio = output.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
         guard let converted = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else { return [] }
@@ -56,6 +71,8 @@ private final class TapConverter: @unchecked Sendable {
     }
 }
 #endif
+
+let consultationAudioLog = Logger(subsystem: "org.edgecare.consultation", category: "audio")
 
 @MainActor final class ConsultationAudioEngine: NSObject {
     let gate = MicGate()
@@ -98,8 +115,14 @@ private final class TapConverter: @unchecked Sendable {
             try session.setActive(true)
             let engine = AVAudioEngine()
             let input = engine.inputNode
+            #if targetEnvironment(simulator)
+            // The simulator's voice-processing unit delivers silence from the Mac microphone,
+            // so nothing would ever be transcribed. Real devices keep echo cancellation.
+            #else
             try? input.setVoiceProcessingEnabled(true)
+            #endif
             let format = input.outputFormat(forBus: 0)
+            consultationAudioLog.info("mic input format: \(format.sampleRate, format: .fixed(precision: 0)) Hz, \(format.channelCount) ch")
             guard format.sampleRate > 0, let converter = TapConverter(input: format) else { return false }
             let gate = self.gate
             input.installRealtimeTap(bufferSize: 4096, format: format) { buffer in
