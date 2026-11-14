@@ -23,6 +23,12 @@ public struct DoctorRootView: View {
         NavigationStack {
             List {
                 Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        EdgeCareWordmark(size: 24)
+                        Text("Confirm a referral").font(.title.weight(.bold)).foregroundStyle(EdgeCareStyle.graphite).accessibilityAddTraits(.isHeader)
+                    }.padding(.vertical, 4)
+                }.listRowBackground(Color.clear)
+                Section {
                     SessionBanner(connected: app.connected)
                     Text("Anonymous clinical demo. Signature matching is an experimental aid; use clinician judgement. No identity is collected.").font(.footnote).foregroundStyle(.secondary)
                 }
@@ -39,7 +45,7 @@ public struct DoctorRootView: View {
                             #endif
                             .font(.system(.body, design: .monospaced))
                             .disabled(lookupBusy)
-                        Button("Find referral") { beginLookup() }.frame(minHeight: 48)
+                        Button("Find referral") { beginLookup() }.buttonStyle(.edgeCarePrimary)
                             .disabled(UUID(uuidString: lookup.trimmingCharacters(in: .whitespacesAndNewlines)) == nil || lookupBusy || app.session == nil)
                     } else {
                         Picker("Patient language", selection: $lookupLanguage) {
@@ -48,7 +54,7 @@ public struct DoctorRootView: View {
                         PINField(title: Copy.text("enterPin", lookupLanguage), value: $lookupPIN).disabled(lookupBusy)
                         Text(Copy.text("signature", lookupLanguage)).font(.headline)
                         SignaturePad(strokes: $lookupStrokes, language: lookupLanguage).id(lookupGeneration).disabled(lookupBusy)
-                        Button("Find with signature + code") { beginLookup() }.frame(minHeight: 48)
+                        Button("Find with signature + code") { beginLookup() }.buttonStyle(.edgeCarePrimary)
                             .disabled(lookupPIN.count != 4 || lookupStrokes.flatMap { $0 }.count < 4 || lookupBusy || app.session == nil)
                         Text("No referral ID needed. The signature and code are checked on this phone against clinician-accessible referrals. They are not uploaded.").font(.caption).foregroundStyle(.secondary)
                         Text("Searches unexpired referrals, including referrals already used. Offline search covers only this phone's saved referrals.").font(.caption).foregroundStyle(.secondary)
@@ -69,7 +75,7 @@ public struct DoctorRootView: View {
                                     row(match.record)
                                     Text(match.id).font(.caption.monospaced()).foregroundStyle(.secondary)
                                 }
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).contentShape(Rectangle())
                         }
                     }
                 }
@@ -82,7 +88,11 @@ public struct DoctorRootView: View {
                 if let message = app.message { Section { Text(message).font(.footnote) } }
                 Section { Button("Sync shared state") { Task { await app.sync() } }.disabled(app.busy || lookupBusy) }
             }
+            .edgeCareListBackground()
             .navigationTitle("Doctor verification")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .refreshable { if !lookupBusy { await app.sync() } }
             .navigationDestination(isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil; selectedVerification = nil; matches = [] } })) {
                 if let selected { DoctorVerificationView(record: selected, app: app, verification: selectedVerification) }
@@ -95,7 +105,7 @@ public struct DoctorRootView: View {
                 Task { await app.refresh() }
             }
             .toolbar { ToolbarItem { Menu("Demo controls") { Toggle("Simulate offline", isOn: $app.simulateOffline) } } }
-        }.tint(EdgeCareStyle.mulberry)
+        }.tint(EdgeCareStyle.mulberry).preferredColorScheme(.light)
         .onChange(of: lookupMethod) { _, _ in cancelLookup(); lookupMessage = nil }
         .onChange(of: lookupPIN) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }
         .onChange(of: lookupStrokes) { _, value in lastLookupActivity = Date(); if !value.isEmpty { matches = [] } }
@@ -107,7 +117,7 @@ public struct DoctorRootView: View {
     }
     private func row(_ record: ReferralRecord) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text(String(record.id.prefix(8))).font(.headline.monospaced()); Spacer(); Text((app.wallet.first { $0.id == record.id })?.state.rawValue ?? record.status.rawValue).font(.caption.weight(.semibold)) }
+            HStack { Text(String(record.id.prefix(8))).font(.headline.monospaced()).foregroundStyle(EdgeCareStyle.graphite); Spacer(); EdgeCareStatusPill((app.wallet.first { $0.id == record.id })?.state.rawValue ?? record.status.rawValue) }
             Text(record.recommendedSpecialty.replacingOccurrences(of: "_", with: " ")).font(.subheadline)
             Text(record.clinicalDescription).lineLimit(2).foregroundStyle(.secondary)
             Text("\(record.language.uppercased()) · \(record.riskBand.rawValue) demo priority · \(record.riskScore)/100").font(.caption)
@@ -215,7 +225,7 @@ public struct DoctorVerificationView: View {
                     Section {
                         Button { Task { await markUsed(verification) } } label: {
                             if busy { ProgressView() } else { Label("Mark referral as used", systemImage: "checkmark.shield") }
-                        }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).frame(minHeight: 48)
+                        }.buttonStyle(.edgeCarePrimary)
                             .disabled(busy || app.session == nil)
                         Text("Verification alone does not use the referral. Marking it used consumes its single use in the shared registry.").font(.footnote).foregroundStyle(.secondary)
                         if let error { Text(error).foregroundStyle(.red) }
@@ -238,7 +248,7 @@ public struct DoctorVerificationView: View {
                 Section {
                     Button { Task { await verify() } } label: {
                         if busy { ProgressView() } else { Label("Verify patient", systemImage: "person.badge.shield.checkmark") }
-                    }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).frame(minHeight: 48)
+                    }.buttonStyle(.edgeCarePrimary)
                         .disabled(busy || passcode.count != 4 || strokes.flatMap { $0 }.count < 4 || app.session == nil)
                     Text("Verification checks the signature and code on this device. It does not mark the referral as used.").font(.footnote).foregroundStyle(.secondary)
                     if isUsed { Text("This referral is already marked used. You can still verify the patient to log a new visit.").font(.footnote).foregroundStyle(.orange) }
@@ -262,6 +272,7 @@ public struct DoctorVerificationView: View {
                 }
             }
         }
+        .edgeCareListBackground()
         .navigationTitle("Verify referral")
         .onChange(of: passcode) { _, _ in lastActivity = Date() }
         .onChange(of: strokes) { _, _ in lastActivity = Date() }

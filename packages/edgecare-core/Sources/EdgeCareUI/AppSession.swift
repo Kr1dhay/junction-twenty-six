@@ -109,7 +109,7 @@ public struct PatientRootView: View {
                 .tabItem { Label(Copy.text("new", intake.language), systemImage: "bubble.left.and.text.bubble.right") }
             NavigationStack { WalletView(app: app, language: intake.language) }
                 .tabItem { Label(Copy.text("wallet", intake.language), systemImage: "wallet.pass") }
-        }.tint(EdgeCareStyle.mulberry).task { await app.start() }
+        }.tint(EdgeCareStyle.mulberry).preferredColorScheme(.light).task { await app.start() }
     }
 }
 
@@ -119,7 +119,7 @@ public struct KioskRootView: View {
     public init() {}
     public var body: some View {
         NavigationStack { IntakeView(title: "Edge-Care", model: intake, app: app, kiosk: true) }
-            .tint(EdgeCareStyle.mulberry).task { await app.start() }
+            .tint(EdgeCareStyle.mulberry).preferredColorScheme(.light).task { await app.start() }
             #if os(iOS)
             .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }

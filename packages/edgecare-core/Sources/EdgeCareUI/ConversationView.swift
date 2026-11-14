@@ -21,28 +21,34 @@ struct ConversationView: View {
                     .font(.subheadline.weight(.medium)).accessibilityAddTraits(.updatesFrequently)
                 if conversation.active {
                     Button { conversation.stop() } label: { Label(t("pauseConversation"), systemImage: "pause.circle.fill") }
-                        .buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry)
+                        .buttonStyle(.edgeCarePrimary)
                 } else {
                     Button { conversation.start(model: model, app: app) } label: {
                         Label(t(model.voiceIntakeComplete ? "updateConversation" : "startConversation"), systemImage: "mic.circle.fill")
-                    }.buttonStyle(.borderedProminent).tint(EdgeCareStyle.mulberry).disabled(!enabled)
+                    }.buttonStyle(.edgeCarePrimary).disabled(!enabled)
                 }
                 TextField(t("turnHint"), text: $typedTurn, axis: .vertical).lineLimit(2...6).textFieldStyle(.roundedBorder)
                     .disabled(conversation.active)
                 Button(t("sendText")) {
                     let text = typedTurn.trimmingCharacters(in: .whitespacesAndNewlines)
                     conversation.send(text: text, model: model, app: app)
-                }.buttonStyle(.bordered)
+                }.buttonStyle(.edgeCareSecondary)
                     .disabled(!enabled || conversation.active || typedTurn.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if conversation.replyAudio != nil {
                     Button { conversation.replay(model: model) } label: { Label(t("replay"), systemImage: "play.circle") }
                         .frame(minHeight: 48).disabled(!enabled || conversation.active)
                 }
                 ForEach(Array(model.voiceHistory.enumerated()), id: \.offset) { _, turn in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(turn.role == "assistant" ? "Edge-Care" : t("you")).font(.caption.weight(.semibold)).foregroundStyle(EdgeCareStyle.mulberry)
-                        Text(turn.text).textSelection(.enabled)
-                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                    let fromGuide = turn.role == "assistant"
+                    HStack(alignment: .top, spacing: 10) {
+                        if fromGuide { EdiView(pose: .listening, animated: false).frame(width: 32, height: 33) }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(fromGuide ? "Edge-Care" : t("you")).font(.caption.weight(.semibold)).foregroundStyle(EdgeCareStyle.mulberry)
+                            Text(turn.text).foregroundStyle(EdgeCareStyle.graphite).textSelection(.enabled)
+                        }
+                    }
+                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(fromGuide ? EdgeCareStyle.card : EdgeCareStyle.blush, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
             if conversation.phase == .processing { ProgressView(t("saving")) }
@@ -78,7 +84,7 @@ struct StructuredConcernForm: View {
                 Toggle(t(symptom), isOn: Binding(get: { model.selectedSymptoms.contains(symptom) }, set: { selected in
                     if selected { model.selectedSymptoms.insert(symptom) } else { model.selectedSymptoms.remove(symptom) }
                     updateProfile()
-                })).frame(minHeight: 44)
+                })).toggleStyle(.edgeCareCheckRow)
             }
             Picker(t("profileDuration"), selection: $model.duration) {
                 if model.isUpdatingReferral { Text(model.clinicalProfile.durationEnglish).tag("keep_existing") }
