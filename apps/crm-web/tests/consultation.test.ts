@@ -2,57 +2,34 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { demoReferrals } from "@edgecare/shared-types/fixtures";
-import type { CreateAuthTokenConfig } from "@google/genai";
-import type { TokenMinter } from "../src/server/gemini-live";
-import { draftNotes, liveScribeInstruction, mintSessionTokens, speakText, translateSegment, type ConsultationConfig } from "../src/server/consultation";
+import { draftNotes, mintSessionTokens, speakText, translateSegment, type ConsultationConfig } from "../src/server/consultation";
 import { VoiceError } from "../src/server/voice";
 import { GET as listConsultations, POST as storeConsultation } from "../src/app/referrals/[id]/consultations/route";
 import { POST as sessionRoute } from "../src/app/demo/consultations/session/route";
 import { POST as translateRoute } from "../src/app/demo/consultations/translate/route";
 import { POST as referralPOST } from "../src/app/referrals/route";
 
-const config: ConsultationConfig = { enabled: true, geminiKey: "gemini-test-secret", geminiModel: "configured-gemini-model", elevenKey: "eleven-test-secret", voiceID: "selected-demo-voice", sttModel: "scribe_v2", ttsModel: "eleven_v3", zeroRetention: false, liveModel: "gemini-3.8-live", realtimeSTTModel: "scribe_v3_live" };
+const config: ConsultationConfig = { enabled: true, geminiKey: "gemini-test-secret", geminiModel: "configured-gemini-model", elevenKey: "eleven-test-secret", voiceID: "selected-demo-voice", sttModel: "scribe_v2", ttsModel: "eleven_v3", zeroRetention: false, realtimeSTTModel: "scribe_v3_live" };
 const fixture = JSON.parse(readFileSync("packages/shared-types/fixtures/consultation.json", "utf8"));
 const gemini = (value: unknown) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
 const sessionInput = { consent: true as const, referral_id: fixture.referral_id, doctor_language: "en", patient_language: "so" };
 
-test("session minting returns short-lived tokens and locks Gemini Live to a fixed scribe configuration", async () => {
+test("session minting returns only a short-lived ElevenLabs transcription token", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const fetcher: typeof fetch = async (url, init) => {
     calls.push({ url: String(url), init: init! });
     return Response.json({ token: "scribe-single-use" });
   };
-  const minted: { key: string; config: CreateAuthTokenConfig }[] = [];
-  const mint: TokenMinter = async (key, tokenConfig) => { minted.push({ key, config: tokenConfig }); return { name: "auth_tokens/ephemeral" }; };
   const now = () => new Date("2026-11-14T10:00:00.000Z");
-  const result = await mintSessionTokens(sessionInput, config, fetcher, undefined, now, mint);
-  assert.equal(calls.length, 1, "Gemini goes through the SDK minter, not a hand-built REST call");
+  const result = await mintSessionTokens(sessionInput, config, fetcher, undefined, now);
+  assert.equal(calls.length, 1, "no other provider is contacted");
   assert.equal(calls[0]!.url, "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe");
   assert.equal((calls[0]!.init.headers as Record<string, string>)["xi-api-key"], "eleven-test-secret");
-  assert.equal(minted.length, 1);
-  assert.equal(minted[0]!.key, "gemini-test-secret");
-  const token = minted[0]!.config;
-  assert.equal(token.uses, 1);
-  assert.equal(token.expireTime, "2026-11-14T10:30:00.000Z");
-  assert.equal(token.liveConnectConstraints?.model, "gemini-3.8-live");
-  assert.deepEqual(token.liveConnectConstraints?.config?.responseModalities, ["TEXT"]);
-  assert.deepEqual(token.liveConnectConstraints?.config?.systemInstruction, { parts: [{ text: liveScribeInstruction }] });
-  assert.deepEqual(token.liveConnectConstraints?.config?.contextWindowCompression, { slidingWindow: {} });
   assert.equal(result.scribe.token, "scribe-single-use");
   assert.equal(result.scribe.model, "scribe_v3_live");
-  assert.equal(result.live?.token, "auth_tokens/ephemeral");
-  assert.ok(result.live?.url.endsWith("BidiGenerateContentConstrained"));
+  assert.equal(result.expires_at, "2026-11-14T10:14:00.000Z");
+  assert.equal("live" in result, false);
   assert.equal(JSON.stringify(result).includes("secret"), false);
-});
-
-test("recording is optional: a failed or unconfigured Gemini Live token still yields translation", async () => {
-  const failing = await mintSessionTokens(sessionInput, config, async () => Response.json({ token: "t" }), undefined, undefined,
-    async () => { throw new Error("403 model not available for this key"); });
-  assert.equal(failing.live, null);
-  const empty = await mintSessionTokens(sessionInput, config, async () => Response.json({ token: "t" }), undefined, undefined, async () => ({}));
-  assert.equal(empty.live, null);
-  const runware = await mintSessionTokens(sessionInput, { ...config, provider: "runware", runwareKey: "r", runwareModel: "google:gemini@3-flash", geminiKey: undefined }, async () => Response.json({ token: "t" }));
-  assert.equal(runware.live, null);
   await assert.rejects(mintSessionTokens(sessionInput, { ...config, elevenKey: undefined }, async () => Response.json({})), (error: unknown) => error instanceof VoiceError && error.status === 503);
   await assert.rejects(mintSessionTokens(sessionInput, { ...config, enabled: false }, async () => Response.json({})), (error: unknown) => error instanceof VoiceError && error.status === 503);
 });
@@ -78,18 +55,43 @@ test("translation is literal, schema-validated and spoken only in the target lan
   await assert.rejects(translateSegment({ consent: true, text: "Hello", source_language: "en", target_language: "en", speaker: "doctor", synthesize: false }, config, async () => gemini({})), (error: unknown) => error instanceof VoiceError && error.status === 400);
 });
 
-test("notes combine both transcripts, prefer corrections, and reject malformed drafts", async () => {
-  let sent: { interpreted_transcript: { translation: string }[]; independent_recording_transcript: string } | undefined;
+test("notes are drafted from the transcript text, prefer corrections, and reject malformed drafts", async () => {
+  let sent: Record<string, unknown> & { interpreted_transcript: { translation: string }[] } | undefined;
   const draft = { structured: fixture.structured, clinical_summary: fixture.clinical_summary, patient_language_summary: fixture.patient_language_summary, meeting_notes: fixture.meeting_notes, meeting_notes_patient_language: fixture.meeting_notes_patient_language, discrepancies: [] };
   const transcript = [{ ...fixture.transcript[1], correction: "About two months, maybe three." }];
+  // Older app builds still send the removed recorder's fields; they are accepted and ignored.
   const result = await draftNotes({ consent: true, doctor_language: "en", patient_language: "so", transcript, live_transcript: "about two months", live_key_points: ["- Two months"] }, config, async (_url, init) => {
     sent = JSON.parse(JSON.parse(init!.body as string).contents[0].parts[0].text);
     return gemini(draft);
   });
   assert.equal(sent!.interpreted_transcript[0]!.translation, "About two months, maybe three.");
-  assert.equal(sent!.independent_recording_transcript, "about two months");
+  assert.equal(JSON.stringify(sent).includes("about two months"), false);
+  // Same-language visits (no translation) are summarised too.
+  const same = await draftNotes({ consent: true, doctor_language: "fi", patient_language: "fi", transcript: [{ ...fixture.transcript[1], source_language: "fi", target_language: "fi", translated_text: fixture.transcript[1].original_text }] }, config, async () => gemini(draft));
+  assert.equal(same.clinical_summary, fixture.clinical_summary);
   assert.deepEqual(result.structured, fixture.structured);
   await assert.rejects(draftNotes({ consent: true, doctor_language: "en", patient_language: "so", transcript, live_transcript: null, live_key_points: [] }, config, async () => gemini({ ...draft, diagnosis: "x" })), VoiceError);
+});
+
+test("notes schema avoids nullable unions and stores an unnamed specialty as null", async () => {
+  let schemaSent: unknown;
+  const draft = { structured: { ...fixture.structured, recommended_specialty: "" }, clinical_summary: "s", patient_language_summary: "p", meeting_notes: "", meeting_notes_patient_language: "", discrepancies: [] };
+  const result = await draftNotes({ consent: true, doctor_language: "en", patient_language: "fi", transcript: [fixture.transcript[0]] }, config, async (_url, init) => {
+    schemaSent = JSON.parse(init!.body as string).generationConfig.responseJsonSchema;
+    return gemini(draft);
+  });
+  // Union types such as ["string", "null"] are rejected by the hosted provider path.
+  const unions: string[] = [];
+  const walk = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray((node as { type?: unknown }).type)) unions.push(path);
+    for (const [key, value] of Object.entries(node)) walk(value, `${path}.${key}`);
+  };
+  walk(schemaSent, "schema");
+  assert.deepEqual(unions, []);
+  assert.equal(result.structured.recommended_specialty, null);
+  const named = await draftNotes({ consent: true, doctor_language: "en", patient_language: "fi", transcript: [fixture.transcript[0]] }, config, async () => gemini({ ...draft, structured: { ...draft.structured, recommended_specialty: " dermatology " } }));
+  assert.equal(named.structured.recommended_specialty, "dermatology");
 });
 
 const request = (path: string, method = "GET", body?: unknown, headers?: HeadersInit) => new Request(`http://localhost${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), headers });
@@ -119,6 +121,9 @@ test("consultation routes require clinician access, both confirmations, a known 
   const listed = await (await listConsultations(request(path), context(id))).json();
   assert.equal(listed.consultations.length, 1);
   assert.deepEqual(listed.consultations[0].structured, fixture.structured);
+  // The health record keeps the summary and key points only, never the word-for-word conversation.
+  assert.ok(record.transcript.length > 0);
+  assert.deepEqual(listed.consultations[0].transcript, []);
   // Provider routes: consent required, disabled cloud returns 503 without contacting providers.
   assert.equal((await sessionRoute(request("/demo/consultations/session", "POST", { ...sessionInput, consent: false }))).status, 400);
   // Same-language visits are valid (speaker is set by the clinician's toggle); here cloud is disabled.

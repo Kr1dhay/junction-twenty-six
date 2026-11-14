@@ -13,7 +13,11 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!await repository.verificationEnvelope(id)) return json({ error: "Referral not found" }, 404);
   return json({ consultations: await repository.listConsultations(id) });
 }
-/** Stores a consultation only after both the patient and clinician confirmed it (enforced by the schema). */
+/**
+ * Stores a consultation only after both the patient and clinician confirmed it (enforced by the schema).
+ * The health record keeps the confirmed summary and key points only: any word-for-word transcript an
+ * older app build still sends is dropped before storage.
+ */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
   const { id } = await context.params;
@@ -23,7 +27,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const parsed = consultationSchema.safeParse(body);
   if (!parsed.success || parsed.data.referral_id !== id) return json({ error: "Invalid or unconfirmed consultation" }, 400);
   try {
-    const result = await backend().createConsultation(parsed.data);
+    const result = await backend().createConsultation({ ...parsed.data, transcript: [] });
     return json({ consultation_id: parsed.data.consultation_id }, result.created ? 201 : 200);
   } catch (error) {
     if (error instanceof MissingError) return json({ error: error.message }, 404);

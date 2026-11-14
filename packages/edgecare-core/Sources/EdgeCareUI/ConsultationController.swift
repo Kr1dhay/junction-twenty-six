@@ -2,6 +2,26 @@ import Foundation
 import Observation
 import os
 import EdgeCareCore
+#if canImport(NaturalLanguage)
+import NaturalLanguage
+#endif
+
+/// On-device backup for Scribe's language detection, limited to the visit's two languages. Used
+/// only when Scribe reports no language or a third one; nothing leaves the phone.
+enum TextLanguageGuess {
+    static func guess(_ text: String, among languages: [String]) -> String? {
+        #if canImport(NaturalLanguage)
+        guard text.filter(\.isLetter).count >= 8 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = languages.map { NLLanguage(rawValue: $0) }
+        recognizer.processString(text)
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first, confidence >= 0.8 else { return nil }
+        return language.rawValue
+        #else
+        return nil
+        #endif
+    }
+}
 
 /// An utterance whose language could not be attributed to either participant. It is never
 /// translated or spoken until the clinician assigns a speaker.
@@ -24,33 +44,31 @@ struct UnclearUtterance: Identifiable, Equatable {
     private(set) var segments: [ConsultationSegment] = []
     private(set) var unclear: [UnclearUtterance] = []
     private(set) var partial: String = ""
-    private(set) var keyPoints: [String] = []
     private(set) var translating: Set<Int> = []
-    private(set) var recordingStatus = "Not started"
-    private(set) var recordingAvailable = false
-    private(set) var recordingModel: String?
     var review: ConsultationReview?
     var error: String?
     private(set) var regenerating = false
     private(set) var speaking = false
-    /// Same-language visits cannot attribute speech by language, so the clinician sets who is talking.
-    private(set) var activeSpeaker: ConsultationSpeaker = .patient
+    /// Who is talking now. Same-language visits rely on the clinician's toggle; in two-language
+    /// visits the detected language moves it automatically, and the toggle is the fallback for
+    /// utterances too short to tell the language of.
+    private(set) var activeSpeaker: ConsultationSpeaker = .doctor
+    /// Why the toggle is where it is (shown under it so the clinician can trust or correct it).
+    enum SpeakerSource: Equatable { case manual, detected(language: String) }
+    private(set) var speakerSource: SpeakerSource = .manual
     /// Speech in progress when the toggle flips still belongs to the previous speaker.
     private var pendingCommitSpeaker: ConsultationSpeaker?
+    /// Live microphone level (0...1) and health, so a dead input never looks like "Listening".
+    private(set) var inputLevel: Float = 0
+    private(set) var micHealth: MicHealth = .ok
 
     private let consultationID = UUID().uuidString.lowercased()
     private var startedAt: Date?
-    private var heard: [String] = []
     private var resolver: SpeakerResolver
     private let audio = ConsultationAudioEngine()
     private let scribe = RealtimeScribeClient()
-    private let recorder = GeminiLiveRecorder()
-    private var credentials: ConsultationSessionCredentials?
-    private var resumptionHandle: String?
     private var tasks: [Task<Void, Never>] = []
     private var nextSeq = 0
-    private var recordingEverWorked = false
-    private var recorderReconnects = 0
 
     init(record: ReferralRecord, session: NativeSession) {
         self.record = record; self.session = session
@@ -65,6 +83,33 @@ struct UnclearUtterance: Identifiable, Equatable {
     var isActive: Bool { [.connecting, .live, .paused, .drafting, .review, .submitting].contains(phase) }
     var canEnd: Bool { !segments.isEmpty && (phase == .live || phase == .paused) }
 
+    #if DEBUG
+    /// Simulator automation only: `EDGECARE_DEBUG_CONSULT_LANGS=en,fi`, `EDGECARE_DEBUG_CONSULT_AUTOSTART=1`,
+    /// and `EDGECARE_DEBUG_CONSULT_FINISH=1` (after injected audio: end, both confirm, save to the CRM)
+    /// so the full flow can be exercised without taps. The same methods the buttons call are used.
+    func debugAutostartIfRequested() async {
+        let env = ProcessInfo.processInfo.environment
+        if let langs = env["EDGECARE_DEBUG_CONSULT_LANGS"]?.split(separator: ",").map(String.init), langs.count == 2 {
+            doctorLanguage = langs[0]; patientLanguage = langs[1]
+        }
+        guard env["EDGECARE_DEBUG_CONSULT_AUTOSTART"] == "1", phase == .consent else { return }
+        await begin()
+        guard env["EDGECARE_DEBUG_CONSULT_FINISH"] == "1" else { return }
+        while !audio.debugInjectionFinished { try? await Task.sleep(for: .milliseconds(500)) }
+        while !translating.isEmpty || audio.isPlaying { try? await Task.sleep(for: .milliseconds(500)) }
+        await end()
+        guard var current = review else { consultationAudioLog.error("debug: no review"); return }
+        consultationAudioLog.info("debug: drafted error=\(self.error ?? "none", privacy: .public) summary=\(current.draft.clinicalSummary, privacy: .public) patient=\(current.draft.patientLanguageSummary, privacy: .public) complaint=\(current.draft.structured.presentingComplaint, privacy: .public)")
+        do { try current.confirmPatient() } catch { consultationAudioLog.error("debug: patient cannot confirm"); return }
+        current.confirmDoctor(); review = current
+        await submit()
+        switch phase {
+        case .finished(let outcome): consultationAudioLog.info("debug: submitted \(String(describing: outcome), privacy: .public) id=\(self.consultationID, privacy: .public)")
+        default: consultationAudioLog.error("debug: submit failed \(self.error ?? "?", privacy: .public)")
+        }
+    }
+    #endif
+
     // MARK: Live session
 
     func begin() async {
@@ -73,19 +118,15 @@ struct UnclearUtterance: Identifiable, Equatable {
         error = nil; phase = .connecting
         do {
             let fresh = try await session.startConsultation(ConsultationSessionRequest(consent: true, referralID: record.id, doctorLanguage: doctorLanguage, patientLanguage: patientLanguage))
-            credentials = fresh; recorderReconnects = 0
             try await connectScribe(fresh.scribe)
-            await connectRecorder()
-            let scribe = self.scribe, recorder = self.recorder
-            let started = await audio.start { chunk in
-                Task { await scribe.send(pcm: chunk) }
-                Task { await recorder.send(pcm: chunk) }
-            }
+            let scribe = self.scribe
+            let started = await audio.start { chunk in Task { await scribe.send(pcm: chunk) } }
             guard started else { throw CoreError.consentRequired }
             audio.gate.setPaused(false)
             if startedAt == nil { startedAt = Date() }
             phase = .live
             scheduleTokenRotation()
+            watchMicrophone()
         } catch {
             teardown()
             phase = segments.isEmpty ? .consent : .paused
@@ -101,20 +142,7 @@ struct UnclearUtterance: Identifiable, Equatable {
             for await event in stream { self?.handle(event) }
         })
     }
-    private func connectRecorder() async {
-        guard let live = credentials?.live else {
-            recordingStatus = "Not configured · translation transcript only"; recordingAvailable = recordingEverWorked; return
-        }
-        recordingModel = live.model
-        do {
-            let stream = try await recorder.connect(endpoint: live, resumptionHandle: resumptionHandle)
-            recordingStatus = "Connecting…"
-            tasks.append(Task { [weak self] in
-                for await event in stream { self?.handle(event) }
-            })
-        } catch { recordingStatus = "Unavailable · translation transcript only" }
-    }
-    /// ElevenLabs tokens last 15 minutes; rotate both credentials before they expire.
+    /// ElevenLabs tokens last 15 minutes; rotate before they expire.
     private func scheduleTokenRotation() {
         tasks.append(Task { [weak self] in
             while !Task.isCancelled {
@@ -124,14 +152,33 @@ struct UnclearUtterance: Identifiable, Equatable {
             }
         })
     }
+    /// Samples the input level once a second. No buffers at all means the engine stalled (restart
+    /// it); buffers that are all exact zeros mean the input itself is muted or not permitted.
+    private func watchMicrophone() {
+        micHealth = .ok; _ = audio.level.drain()
+        tasks.append(Task { [weak self] in
+            var quietSeconds = 0, stalledSeconds = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                let window = self.audio.level.drain()
+                self.inputLevel = window.peak
+                guard self.phase == .live else { quietSeconds = 0; stalledSeconds = 0; continue }
+                stalledSeconds = window.buffers == 0 ? stalledSeconds + 1 : 0
+                quietSeconds = window.buffers > 0 && window.nonZero == 0 ? quietSeconds + 1 : 0
+                let health: MicHealth = stalledSeconds >= 3 ? .stalled : quietSeconds >= 4 ? .silent : .ok
+                if health != self.micHealth { consultationAudioLog.info("mic health: \(String(describing: health), privacy: .public)") }
+                self.micHealth = health
+                if stalledSeconds == 3 || stalledSeconds == 8 { self.audio.restartCapture() }
+            }
+        })
+    }
+
     private func rotateCredentials() async {
         do {
             let fresh = try await session.startConsultation(ConsultationSessionRequest(consent: true, referralID: record.id, doctorLanguage: doctorLanguage, patientLanguage: patientLanguage))
-            credentials = fresh; recorderReconnects = 0
             await scribe.commit()
             try await connectScribe(fresh.scribe)
-            // Gemini resumes the same recording with the handle under the new token.
-            await connectRecorder()
         } catch { self.error = "Connection refresh failed. Translation may stop; you can end and review the session. (\(Self.message(error)))" }
     }
 
@@ -141,23 +188,42 @@ struct UnclearUtterance: Identifiable, Equatable {
         switch event {
         case .started: consultationAudioLog.info("scribe: session started")
         case .partial(let text, _): consultationAudioLog.debug("scribe: partial (\(text.count) chars)")
-        case .committed(let text, let language): consultationAudioLog.info("scribe: committed (\(text.count) chars, \(language ?? "?", privacy: .public))")
+        case .committed(let text, let language):
+            consultationAudioLog.info("scribe: committed (\(text.count) chars, \(language ?? "?", privacy: .public))")
+            // Opt-in for synthetic test audio only; real consultations never log text.
+            if ProcessInfo.processInfo.environment["EDGECARE_DEBUG_LOG_TEXT"] == "1" { consultationAudioLog.info("scribe text: \(text, privacy: .public)") }
         case .failed(let message): consultationAudioLog.error("scribe: failed \(message, privacy: .public)")
         case .closed: consultationAudioLog.error("scribe: closed")
         }
         #endif
         switch event {
-        case .partial(let text, _): partial = text
+        case .partial(let text, let language):
+            partial = text
+            audio.holdPlayback = phase == .live
+            // Scribe only reports a partial's language once it is stable, so follow it live.
+            if !sameLanguage, case .resolved(let speaker, _, _) = resolver.resolve(languageCode: language) { follow(speaker, language: language) }
         case .committed(let text, let language):
             partial = ""
+            audio.holdPlayback = false
+            let toggled = pendingCommitSpeaker ?? activeSpeaker
+            pendingCommitSpeaker = nil
             if sameLanguage {
-                let speaker = pendingCommitSpeaker ?? activeSpeaker
-                pendingCommitSpeaker = nil
-                append(text: text, speaker: speaker, source: patientLanguage, target: patientLanguage, overridden: false)
+                append(text: text, speaker: toggled, source: patientLanguage, target: patientLanguage, overridden: false)
                 return
             }
+            var language = language
+            if case .unclear = resolver.resolve(languageCode: language),
+               let guess = TextLanguageGuess.guess(text, among: [resolver.doctorLanguage, resolver.patientLanguage]) {
+                language = guess
+            }
             switch resolver.resolve(languageCode: language) {
-            case .resolved(let speaker, let source, let target): append(text: text, speaker: speaker, source: source, target: target, overridden: false)
+            case .resolved(let speaker, let source, let target):
+                follow(speaker, language: language)
+                append(text: text, speaker: speaker, source: source, target: target, overridden: false)
+            case .unclear where language == nil:
+                // Too short to tell ("yes", "ok"): the toggle says who is talking.
+                guard case .resolved(let speaker, let source, let target) = resolver.direction(for: toggled) else { return }
+                append(text: text, speaker: speaker, source: source, target: target, overridden: false)
             case .unclear: unclear.append(UnclearUtterance(text: text, language: language))
             }
         case .failed(let message): error = "Transcription problem: \(message)"
@@ -168,35 +234,6 @@ struct UnclearUtterance: Identifiable, Equatable {
         case .started: break
         }
     }
-    private func handle(_ event: LiveRecorderEvent) {
-        #if DEBUG
-        switch event {
-        case .failed(let message): consultationAudioLog.error("recorder: failed \(message, privacy: .public)")
-        case .closed: consultationAudioLog.error("recorder: closed")
-        case .ready: consultationAudioLog.info("recorder: ready")
-        case .goAway: consultationAudioLog.info("recorder: goAway")
-        default: break
-        }
-        #endif
-        switch event {
-        case .ready: recordingStatus = "Recording with \(recordingModel ?? "Gemini Live")"; recordingAvailable = true; recordingEverWorked = true
-        case .heard(let text): heard.append(text)
-        case .keyPoints(let points): keyPoints.append(contentsOf: points)
-        case .resumptionHandle(let handle): resumptionHandle = handle
-        case .goAway: reconnectRecorder()
-        case .failed(let message): recordingStatus = "Recording problem: \(message)"
-        case .closed: if recordingAvailable { reconnectRecorder() }
-        }
-    }
-
-    /// Resumes the same Gemini recording via its handle; capped so an expired token cannot loop.
-    private func reconnectRecorder() {
-        guard phase == .live || phase == .paused, recorderReconnects < 3 else {
-            recordingStatus = "Recording stopped · translation transcript continues"; recordingAvailable = false; return
-        }
-        recorderReconnects += 1; recordingStatus = "Reconnecting recorder…"
-        Task { [weak self] in await self?.connectRecorder() }
-    }
     private func append(text: String, speaker: ConsultationSpeaker, source: String, target: String, overridden: Bool) {
         let segment = ConsultationSegment(seq: nextSeq, speaker: speaker, sourceLanguage: source, targetLanguage: target, originalText: text, speakerOverridden: overridden)
         nextSeq += 1
@@ -206,13 +243,20 @@ struct UnclearUtterance: Identifiable, Equatable {
         Task { await translate(seq: segment.seq) }
     }
 
-    /// Hands the floor to a participant (same-language visits only).
+    /// The clinician hands the floor to a participant. Speech in progress is finalised first so it
+    /// stays with the previous speaker. In two-language visits detection can move it back.
     func setSpeaker(_ speaker: ConsultationSpeaker) {
-        guard sameLanguage, speaker != activeSpeaker else { return }
+        speakerSource = .manual
+        guard speaker != activeSpeaker else { return }
         if !partial.isEmpty {
             pendingCommitSpeaker = activeSpeaker
             Task { await scribe.commit() }
         }
+        activeSpeaker = speaker
+    }
+    /// Moves the toggle to the participant whose language was just detected.
+    private func follow(_ speaker: ConsultationSpeaker, language: String?) {
+        if let language { speakerSource = .detected(language: SpeakerResolver.normalize(language)) }
         activeSpeaker = speaker
     }
     private func translate(seq: Int, speak: Bool = true) async {
@@ -256,7 +300,7 @@ struct UnclearUtterance: Identifiable, Equatable {
 
     func pause() {
         guard phase == .live else { return }
-        audio.gate.setPaused(true)
+        audio.gate.setPaused(true); audio.holdPlayback = false
         Task { await scribe.commit() }
         phase = .paused
     }
@@ -278,9 +322,9 @@ struct UnclearUtterance: Identifiable, Equatable {
     func end() async {
         guard canEnd else { return }
         audio.gate.setPaused(true)
-        await scribe.commit(); await recorder.endAudio()
+        await scribe.commit()
         phase = .drafting
-        // Let the final committed segment and recorder turn arrive.
+        // Let the final committed segment arrive.
         try? await Task.sleep(for: .milliseconds(1500))
         teardown()
         while !translating.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
@@ -299,9 +343,7 @@ struct UnclearUtterance: Identifiable, Equatable {
     }
     private func notesRequest(edits: String? = nil) -> ConsultationNotesRequest {
         ConsultationNotesRequest(consent: true, doctorLanguage: doctorLanguage, patientLanguage: patientLanguage,
-                                 transcript: review?.segments ?? segments,
-                                 liveTranscript: heard.isEmpty ? nil : heard.joined(separator: " "),
-                                 liveKeyPoints: keyPoints, clinicianEdits: edits)
+                                 transcript: review?.segments ?? segments, clinicianEdits: edits)
     }
     /// Re-runs drafting from the transcript after a provider failure (replaces the whole draft).
     func retryDraft() async {
@@ -343,8 +385,7 @@ struct UnclearUtterance: Identifiable, Equatable {
         phase = .submitting; error = nil
         do {
             let consultation = try review.record(consultationID: consultationID, referralID: record.id, startedAt: startedAt,
-                                                 doctorLanguage: doctorLanguage, patientLanguage: patientLanguage,
-                                                 recordingModel: recordingModel, recordingAvailable: recordingEverWorked)
+                                                 doctorLanguage: doctorLanguage, patientLanguage: patientLanguage)
             phase = .finished(try await session.submitConsultation(consultation))
         } catch {
             self.error = Self.message(error); phase = .review
@@ -354,11 +395,11 @@ struct UnclearUtterance: Identifiable, Equatable {
     func teardown() {
         tasks.forEach { $0.cancel() }; tasks = []
         audio.stop()
-        Task { [scribe, recorder] in await scribe.close(); await recorder.close() }
+        Task { [scribe] in await scribe.close() }
     }
     /// Clears all in-memory consultation content (nothing was persisted unless it was submitted).
     func discardAll() {
-        teardown(); segments = []; unclear = []; keyPoints = []; heard = []; review = nil; partial = ""
+        teardown(); segments = []; unclear = []; review = nil; partial = ""
     }
 
     static func message(_ error: any Error) -> String {

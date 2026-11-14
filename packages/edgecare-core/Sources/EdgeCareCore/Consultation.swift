@@ -105,6 +105,8 @@ public struct ConsultationNotesDraft: Codable, Equatable, Sendable {
     }
 }
 
+/// Legacy slot from the removed independent audio recorder. The deployed schema still requires it,
+/// so it is always sent empty: the summary is drafted from the transcript text alone.
 public struct ConsultationRecording: Codable, Equatable, Sendable {
     public var provider = "gemini-live"
     public var model: String?
@@ -175,10 +177,8 @@ public struct RealtimeEndpoint: Codable, Equatable, Sendable {
 }
 public struct ConsultationSessionCredentials: Codable, Equatable, Sendable {
     public let scribe: RealtimeEndpoint
-    /// Nil when Gemini Live is not configured; the session then keeps only the translation transcript.
-    public let live: RealtimeEndpoint?
     public let expiresAt: String
-    enum CodingKeys: String, CodingKey { case scribe, live, expiresAt = "expires_at" }
+    enum CodingKeys: String, CodingKey { case scribe, expiresAt = "expires_at" }
 }
 public struct ConsultationTranslateRequest: Encodable, Sendable {
     public let consent: Bool
@@ -224,13 +224,10 @@ public struct ConsultationNotesRequest: Encodable, Sendable {
     public let doctorLanguage: String
     public let patientLanguage: String
     public let transcript: [ConsultationSegment]
-    public let liveTranscript: String?
-    public let liveKeyPoints: [String]
     public let clinicianEdits: String?
-    public init(consent: Bool, doctorLanguage: String, patientLanguage: String, transcript: [ConsultationSegment],
-                liveTranscript: String?, liveKeyPoints: [String], clinicianEdits: String? = nil) {
+    public init(consent: Bool, doctorLanguage: String, patientLanguage: String, transcript: [ConsultationSegment], clinicianEdits: String? = nil) {
         self.consent = consent; self.doctorLanguage = doctorLanguage; self.patientLanguage = patientLanguage; self.transcript = transcript
-        self.liveTranscript = liveTranscript; self.liveKeyPoints = Array(liveKeyPoints.suffix(500)); self.clinicianEdits = clinicianEdits
+        self.clinicianEdits = clinicianEdits
     }
     enum CodingKeys: String, CodingKey {
         case consent, transcript, doctorLanguage = "doctor_language", patientLanguage = "patient_language"
@@ -240,7 +237,8 @@ public struct ConsultationNotesRequest: Encodable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(consent, forKey: .consent); try c.encode(doctorLanguage, forKey: .doctorLanguage)
         try c.encode(patientLanguage, forKey: .patientLanguage); try c.encode(transcript, forKey: .transcript)
-        try c.encode(liveTranscript, forKey: .liveTranscript); try c.encode(liveKeyPoints, forKey: .liveKeyPoints)
+        // The removed recorder's inputs, still required (empty) by the deployed schema.
+        try c.encodeNil(forKey: .liveTranscript); try c.encode([String](), forKey: .liveKeyPoints)
         try c.encodeIfPresent(clinicianEdits, forKey: .clinicianEdits)
     }
 }
@@ -326,8 +324,7 @@ public struct ConsultationReview: Equatable, Sendable {
     public mutating func confirmDoctor(at date: Date = Date()) {
         doctorConfirmedAt = max(date, endedAt)
     }
-    public func record(consultationID: String, referralID: String, startedAt: Date, doctorLanguage: String, patientLanguage: String,
-                       recordingModel: String?, recordingAvailable: Bool) throws -> ConsultationRecord {
+    public func record(consultationID: String, referralID: String, startedAt: Date, doctorLanguage: String, patientLanguage: String) throws -> ConsultationRecord {
         guard canSubmit, let patient = patientConfirmedAt, let doctor = doctorConfirmedAt else { throw CoreError.consentRequired }
         return ConsultationRecord(
             consultationID: consultationID.lowercased(), referralID: referralID.lowercased(),
@@ -335,7 +332,9 @@ public struct ConsultationReview: Equatable, Sendable {
             doctorLanguage: doctorLanguage, patientLanguage: patientLanguage, structured: draft.structured,
             clinicalSummary: draft.clinicalSummary, patientLanguageSummary: draft.patientLanguageSummary,
             meetingNotes: draft.meetingNotes, meetingNotesPatientLanguage: draft.meetingNotesPatientLanguage,
-            transcript: segments, recording: ConsultationRecording(model: recordingAvailable ? recordingModel : nil, transcriptAvailable: recordingAvailable, discrepancies: draft.discrepancies),
+            // The health record keeps the confirmed summary and key points only; the word-for-word
+            // conversation stays on this screen for review and is never saved or uploaded.
+            transcript: [], recording: ConsultationRecording(model: nil, transcriptAvailable: false, discrepancies: draft.discrepancies),
             confirmation: ConsultationConfirmation(patientConfirmedAt: ConsultationClock.string(patient), doctorConfirmedAt: ConsultationClock.string(doctor), disputedItems: disputedItems))
     }
 }
