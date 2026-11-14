@@ -45,7 +45,8 @@ public struct ReferralRecord: Codable, Equatable, Sendable, Identifiable {
     public let commitmentHash: String
     public let status: ReferralStatus
     public let expiresAt: String
-    public init(referralID: String, createdAt: String, source: ReferralSource, kioskID: String?, language: String, symptoms: [String], freeTextSummary: String, patientLanguageSummary: String, riskScore: Int, riskBand: RiskBand, recommendedSpecialty: String, letterScan: LetterScan, lesionPhoto: LesionPhoto, signatureTemplateEncrypted: String, triageDetailEncrypted: String, salt: String, commitmentHash: String, status: ReferralStatus, expiresAt: String) {
+    public let voiceResearch: VoiceResearchAssessment?
+    public init(referralID: String, createdAt: String, source: ReferralSource, kioskID: String?, language: String, symptoms: [String], freeTextSummary: String, patientLanguageSummary: String, riskScore: Int, riskBand: RiskBand, recommendedSpecialty: String, letterScan: LetterScan, lesionPhoto: LesionPhoto, signatureTemplateEncrypted: String, triageDetailEncrypted: String, salt: String, commitmentHash: String, status: ReferralStatus, expiresAt: String, voiceResearch: VoiceResearchAssessment? = nil) {
         self.referralID = referralID
         self.createdAt = createdAt
         self.source = source
@@ -65,6 +66,7 @@ public struct ReferralRecord: Codable, Equatable, Sendable, Identifiable {
         self.commitmentHash = commitmentHash
         self.status = status
         self.expiresAt = expiresAt
+        self.voiceResearch = voiceResearch
     }
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -87,6 +89,7 @@ public struct ReferralRecord: Codable, Equatable, Sendable, Identifiable {
         try container.encode(commitmentHash, forKey: .commitmentHash)
         try container.encode(status, forKey: .status)
         try container.encode(expiresAt, forKey: .expiresAt)
+        try container.encodeIfPresent(voiceResearch, forKey: .voiceResearch)
     }
     enum CodingKeys: String, CodingKey {
         case referralID = "referral_id"
@@ -108,6 +111,7 @@ public struct ReferralRecord: Codable, Equatable, Sendable, Identifiable {
         case commitmentHash = "commitment_hash"
         case status = "status"
         case expiresAt = "expires_at"
+        case voiceResearch = "voice_research"
     }
 }
 public enum DemoData {

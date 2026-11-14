@@ -308,4 +308,55 @@ import XCTest
         _ = launch(portrait: true)
         capture("06-portrait-welcome")
     }
+
+    /// Explicit local-model check. Never records audio or enrolls a patient.
+    func testLocalModelOfferRequiresConsentAndCanBeSkipped() throws {
+        continueAfterFailure = false
+        guard let token = ProcessInfo.processInfo.environment["VOICE_DEMO_ISSUER_TOKEN"], !token.isEmpty else {
+            throw XCTSkip("Requires the explicitly started local voice-demo backend.")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["EDGECARE_MODE"] = "connected"
+        app.launchEnvironment["EDGECARE_BASE_URL"] = "http://127.0.0.1:3100"
+        app.launchEnvironment["EDGECARE_ISSUER_TOKEN"] = token
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launch()
+        XCTAssertTrue(app.buttons["Create a new referral"].waitForExistence(timeout: 15))
+        app.buttons["Create a new referral"].tap()
+        app.switches["Another health concern"].tap()
+        let notes = app.textFields["Optional notes in your language"]
+        notes.tap()
+        notes.typeText("My voice has been hoarse for three weeks.")
+        app.buttons["Continue"].tap()
+        for _ in 0..<12 {
+            if app.buttons["voiceResearchOpen"].exists { break }
+            XCTAssertTrue(app.buttons["No"].waitForExistence(timeout: 5))
+            app.buttons["No"].tap()
+        }
+        XCTAssertTrue(app.buttons["voiceResearchOpen"].waitForExistence(timeout: 10))
+        capture("voice-research-real-worker-entry")
+        app.buttons["voiceResearchOpen"].tap()
+        let consent = app.switches["These are my symptoms and I agree to this separate experimental recording and processing."]
+        XCTAssertTrue(consent.waitForExistence(timeout: 15), "The real worker should make consent available")
+        XCTAssertFalse(app.buttons["voiceResearchStart"].exists, "Recording must be hidden before consent")
+        for _ in 0..<5 {
+            if consent.isHittable { break }
+            app.swipeUp()
+        }
+        consent.tap()
+        let record = app.buttons["voiceResearchStart"]
+        XCTAssertTrue(record.waitForExistence(timeout: 5))
+        XCTAssertTrue(record.isEnabled)
+        capture("voice-research-real-worker-consent")
+        // Deliberately do not press Record: no microphone audio is captured.
+        let skip = app.buttons["Skip voice check"]
+        if !skip.isHittable { app.swipeUp() }
+        skip.tap()
+        XCTAssertTrue(app.buttons["voiceResearchDone"].waitForExistence(timeout: 5))
+        app.buttons["voiceResearchDone"].tap()
+        let next = app.buttons["intakePrimaryAction"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        next.tap()
+        XCTAssertTrue(app.staticTexts["Your next step"].waitForExistence(timeout: 10))
+    }
 }
