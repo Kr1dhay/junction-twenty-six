@@ -1,3 +1,5 @@
+Current demo languages: English, Finnish, Somali, Arabic and Ukrainian. The Russian provider results below predate this localisation change; Ukrainian live-provider verification remains pending.
+
 # Implementation verification
 
 Verified on the supplied Linux host with Node 22.11.0 and pnpm 9.15.9:

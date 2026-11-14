@@ -35,13 +35,13 @@ public enum SafetyQuestionnaire {
         func matches(_ ids: [String], _ words: [String]) -> Bool {
             ids.contains { selectedSymptoms.contains($0) } || words.contains { text.contains($0) }
         }
-        let skin = matches(["skin_change"], ["mole", "skin", "lesion", "luomi", "iho", "maqaarka", "شامة", "جلد", "родин", "кож"])
-        let lump = matches(["lump", "lump_or_swelling"], ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "опухол", "уплотнен"])
-        let cough = matches(["persistent_cough", "cough"], ["cough", "yskä", "qufac", "سعال", "кашель"])
-        let breathing = matches([], ["breath", "hengitys", "neef", "تنفس", "дыш"])
-        let chest = matches([], ["chest", "rinta", "laabta", "الصدر", "груди"])
+        let skin = matches(["skin_change"], ["mole", "skin", "lesion", "luomi", "iho", "maqaarka", "شامة", "جلد", "родим", "шкір"])
+        let lump = matches(["lump", "lump_or_swelling"], ["lump", "swelling", "kyhmy", "patti", "buro", "كتلة", "пухлин", "ущільнен", "припухлість"])
+        let cough = matches(["persistent_cough", "cough"], ["cough", "yskä", "qufac", "سعال", "кашель", "кашл"])
+        let breathing = matches([], ["breath", "hengitys", "neef", "تنفس", "диха", "задишк"])
+        let chest = matches([], ["chest", "rinta", "laabta", "الصدر", "груд"])
         let bleeding = matches(["unexplained_bleeding"], ["bleed", "blood", "veri", "verenvuoto", "dhiig", "نزيف", "دم", "кров"])
-        let screening = matches(["screening_letter"], ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "письм", "скрининг"])
+        let screening = matches(["screening_letter"], ["letter", "screening", "kirje", "seulonta", "warqad", "baaritaan", "رسالة", "فحص", "лист", "скринінг"])
         var questions: [SafetyQuestion] = []
         if cough || breathing { questions.append(.init(id: .urgentBreathing, category: .emergency)) }
         if chest { questions.append(.init(id: .urgentChestPain, category: .emergency)) }

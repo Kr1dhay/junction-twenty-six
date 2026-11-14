@@ -42,7 +42,7 @@ Context worth knowing:
 
 ## 4. Personas
 
-- **The patient (kiosk or own phone).** An undocumented or marginalised person in Helsinki. May speak Somali, Arabic, Russian, Kurdish, Romani or Finnish. May be non-verbal or low-literacy. Fears authority, paperwork and being identified. Has a health worry or a Finnish screening letter they cannot read.
+- **The patient (kiosk or own phone).** An undocumented or marginalised person in Helsinki. May speak Somali, Arabic, Ukrainian, Kurdish, Romani or Finnish. May be non-verbal or low-literacy. Fears authority, paperwork and being identified. Has a health worry or a Finnish screening letter they cannot read.
 - **The doctor (CRM + verification app).** A GP or specialist who receives Edge-Care referrals. Sees only anonymous referral records. Verifies the patient in front of them by signature + passcode, then treats.
 - **The demo audience (judges).** Junction judges and AstraZeneca/NVIDIA/Solana sponsors watching a video-driven demo. They need to feel the problem, see the offline moment, and understand the signature-as-key mechanism in under 3 minutes.
 
@@ -195,7 +195,7 @@ Runs on an iPad mounted in a public kiosk. Always-on, anonymous, self-service.
 
 Flow:
 
-1. **Welcome.** Language auto-detect from the first spoken or typed words. Big friendly language switcher always visible. Languages to demo: Finnish, English, Somali, Arabic, Russian.
+1. **Welcome.** Language auto-detect from the first spoken or typed words. Big friendly language switcher always visible. Languages to demo: Finnish, English, Somali, Arabic, Ukrainian.
 2. **Conversation.** The patient describes their concern by voice (on-device speech recognition) or by typing (full non-verbal parity). The conversational layer asks follow-up questions, calms fears, and keeps language simple (reading age ~10).
 3. **Evidence capture.** Optional: photograph a referral or screening letter (Nemotron VL reads it on-device, any language) or photograph a skin lesion (Nemotron VL assesses visual warning signs on-device). Nothing uploaded raw.
 4. **Triage.** Symptoms compared against cancer warning signs. Outcome: reassurance and self-care guidance, or a specialist referral recommendation with a risk score.

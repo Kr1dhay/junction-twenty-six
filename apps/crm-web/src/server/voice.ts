@@ -46,10 +46,10 @@ const turnJSON = { type: "object", additionalProperties: false, properties: { de
 // Explicitly supported Gemini models used for text intake; never route to an image model or auto-router.
 const runwareGeminiModels = new Set(["google:gemini@3.1-pro", "google:gemini@3-flash", "google:gemini@3.1-flash-lite"]);
 const turnSchema = z.object({ detected_language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/), reply: z.string().trim().min(1).max(2000), profile: clinicalProfileSchema, intake_complete: z.boolean(), stop_requested: z.boolean() }).strict();
-const aliases: Record<string, string> = { eng: "en", fin: "fi", som: "so", ara: "ar", rus: "ru", nep: "ne", npi: "ne", kur: "ku", fra: "fr", deu: "de", spa: "es", swe: "sv", fas: "fa", zho: "zh", jpn: "ja", kor: "ko" };
+const aliases: Record<string, string> = { eng: "en", fin: "fi", som: "so", ara: "ar", ukr: "uk", nep: "ne", npi: "ne", kur: "ku", fra: "fr", deu: "de", spa: "es", swe: "sv", fas: "fa", zho: "zh", jpn: "ja", kor: "ko" };
 const normalizeLanguage = (value: string) => aliases[value.toLowerCase()] ?? value.toLowerCase();
-const v2Languages = "en ja zh de hi fr ko pt it es id nl tr fil pl sv bg ro ar cs el fi hr ms sk da ta uk ru".split(" ");
-const v3Languages = "af ar hy as ast az be bn bs bg my yue ca ceb ny hr cs da nl en et fil fi fr gl ka de el gu ha he hi hu is id ga it ja jv kn kk ky ko lv ln lt lb mk ms ml mt zh mi mr mn ne no oc or ps fa pl pt pa ro ru sr sd sk sl so es sw sv tg ta te th tr uk ur uz vi cy yo".split(" ");
+const v2Languages = "en ja zh de hi fr ko pt it es id nl tr fil pl sv bg ro ar cs el fi hr ms sk da ta uk".split(" ");
+const v3Languages = "af ar hy as ast az be bn bs bg my yue ca ceb ny hr cs da nl en et fil fi fr gl ka de el gu ha he hi hu is id ga it ja jv kn kk ky ko lv ln lt lb mk ms ml mt zh mi mr mn ne no oc or ps fa pl pt pa ro sr sd sk sl so es sw sv tg ta te th tr uk ur uz vi cy yo".split(" ");
 function supportsSpeech(model: string, language: string) {
   const base = language.split("-")[0]!;
   if (model === "eleven_v3") return v3Languages.includes(base);
@@ -62,12 +62,12 @@ const completionClosings: Record<string, string> = {
   fi: "Kiitos. Olen kirjannut antamasi tiedot.",
   so: "Waad mahadsan tahay. Waan diiwaangeliyey xogtaada.",
   ar: "شكراً لك. لقد سجلت المعلومات التي قدمتها.",
-  ru: "Спасибо. Я записал предоставленную вами информацию.",
+  uk: "Дякую. Надану вами інформацію записано.",
   ne: "धन्यवाद। मैले तपाईंले दिनुभएको जानकारी रेकर्ड गरेँ।",
 };
 const stopClosings: Record<string, string> = {
   en: "We will stop here.", fi: "Lopetetaan tähän.", so: "Halkaan ayaan ku joojinaynaa.",
-  ar: "سنتوقف هنا.", ru: "На этом остановимся.", ne: "हामी यहीँ रोकिन्छौं।",
+  ar: "سنتوقف هنا.", uk: "На цьому зупинимося.", ne: "हामी यहीँ रोकिन्छौं।",
 };
 function completedReply(reply: string, language: string, stopped: boolean): string {
   // Keep declarative safety guidance while removing any residual follow-up questions.

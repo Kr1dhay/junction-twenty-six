@@ -256,7 +256,7 @@ public struct SpeakerResolver: Equatable, Sendable {
     public init(doctorLanguage: String, patientLanguage: String) {
         self.doctorLanguage = Self.normalize(doctorLanguage); self.patientLanguage = Self.normalize(patientLanguage)
     }
-    private static let aliases = ["eng": "en", "fin": "fi", "som": "so", "ara": "ar", "rus": "ru", "nep": "ne", "npi": "ne", "kur": "ku", "fra": "fr", "deu": "de", "spa": "es", "swe": "sv", "fas": "fa", "zho": "zh", "jpn": "ja", "kor": "ko"]
+    private static let aliases = ["eng": "en", "fin": "fi", "som": "so", "ara": "ar", "ukr": "uk", "nep": "ne", "npi": "ne", "kur": "ku", "fra": "fr", "deu": "de", "spa": "es", "swe": "sv", "fas": "fa", "zho": "zh", "jpn": "ja", "kor": "ko"]
     public static func normalize(_ code: String) -> String {
         let base = code.lowercased().split(separator: "-").first.map(String.init) ?? code.lowercased()
         return aliases[base] ?? base

@@ -61,7 +61,7 @@ async function main() {
   if (process.argv.includes("--live-voice")) {
     const texts: Record<string, string> = {
       en: "I have had a cough for two days.", fi: "Minulla on ollut yskää kaksi päivää.",
-      so: "Waxaan qufacayay laba maalmood.", ar: "أعاني من السعال منذ يومين.", ru: "У меня кашель уже два дня.",
+      so: "Waxaan qufacayay laba maalmood.", ar: "أعاني من السعال منذ يومين.", uk: "У мене кашель уже два дні.",
     };
     let english: VoiceTurnResponse | undefined;
     for (const [language, text] of Object.entries(texts)) {

@@ -39,7 +39,7 @@ Connected mode shares the local backend across devices. `--mode local` makes no 
 
 ## Kiosk language and voice
 
-Patients can complete a structured form offline or have a turn-by-turn voice conversation online. Voice uses ElevenLabs speech recognition with automatic language detection, a server-side conversational assistant that updates an English clinical profile, and ElevenLabs speech in the detected language. The configured multilingual voice can be overridden per language. The five demo languages are English, Finnish, Somali, Arabic and Russian.
+Patients can complete a structured form offline or have a turn-by-turn voice conversation online. Voice uses ElevenLabs speech recognition with automatic language detection, a server-side conversational assistant that updates an English clinical profile, and ElevenLabs speech in the detected language. The configured multilingual voice can be overridden per language. The six demo languages are English, Finnish, Somali, Arabic, Ukrainian and Nepali.
 
 Voice requires explicit consent, connectivity and server-side ElevenLabs plus Gemini credentials (directly or through Runware). The form remains available without those services. The clinical profile and clinician summary use English; localized replies and patient guidance are separate. No patient voice cloning is performed. See [hosted deployment and Mac connection](docs/deployment.md), the server `.env.example` and [voice setup](docs/voice-intake.md).
 

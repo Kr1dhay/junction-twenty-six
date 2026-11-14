@@ -1,5 +1,7 @@
 # Multilingual voice selection
 
+The current demo uses Ukrainian in place of Russian. Ukrainian uses the default multilingual voice unless `ELEVENLABS_VOICE_ID_UK` is configured. Ukrainian synthesis, automatic detection, and pronunciation have not yet been verified. The Russian selection and probe results below are historical evidence, not current configuration.
+
 Checked 2026-11-14 using only ElevenLabs official public language pages. These are suitable initial candidates for a calm intake assistant, selected from the descriptions embedded in those pages. See `artifacts/voice-selection.json` for exact metadata, synthetic greeting texts, and live probe results.
 
 | Language | Voice | Voice ID | Source |

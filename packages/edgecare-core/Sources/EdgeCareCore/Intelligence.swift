@@ -4,12 +4,12 @@ import FoundationNetworking
 #endif
 
 public enum SupportedLanguage: String, CaseIterable, Codable, Sendable {
-    case en, fi, so, ar, ru, ne
+    case en, fi, so, ar, uk, ne
     public static func resolve(_ code: String) -> Self {
         Self(rawValue: String(code.lowercased().prefix(2))) ?? .en
     }
     public var speechLocale: String {
-        switch self { case .en: return "en-GB"; case .fi: return "fi-FI"; case .so: return "so-SO"; case .ar: return "ar-SA"; case .ru: return "ru-RU"; case .ne: return "ne-NP" }
+        switch self { case .en: return "en-GB"; case .fi: return "fi-FI"; case .so: return "so-SO"; case .ar: return "ar-SA"; case .uk: return "uk-UA"; case .ne: return "ne-NP" }
     }
     public var noRecoveryWarning: String {
         switch self {
@@ -17,7 +17,7 @@ public enum SupportedLanguage: String, CaseIterable, Codable, Sendable {
         case .fi: return "Muista allekirjoituksesi ja nelinumeroinen koodisi. Tiliä ei ole, eikä unohtunutta koodia voi palauttaa."
         case .so: return "Xusuusnow saxiixaaga iyo koodhka afarta lambar ah. Akoon ma jiro, koodh la illoobayna dib looma soo celin karo."
         case .ar: return "تذكّر توقيعك ورمزك المكوّن من أربعة أرقام. لا يوجد حساب ولا يمكن استعادة الرمز إذا نسيته."
-        case .ru: return "Запомните подпись и код из четырёх цифр. Учётной записи нет. Забытый код восстановить нельзя."
+        case .uk: return "Запам’ятайте підпис і чотиризначний код. Облікового запису немає. Забутий код неможливо відновити."
         case .ne: return "आफ्नो हस्ताक्षर र चार अङ्कको कोड सम्झनुहोस्। कुनै खाता छैन, र बिर्सिएको कोड रिसेट गर्ने कुनै उपाय छैन।"
         }
     }
@@ -90,9 +90,9 @@ public struct OnDeviceTriageEngine: TriageEngine {
         case .ar:
             if emergency { return "إذا كان لديك الآن ألم في الصدر أو صعوبة شديدة في التنفس أو نزيف شديد أو فقدان للوعي، اتصل فوراً بالرقم 112. لا تنتظر الإحالة. لا يستطيع هذا العرض تقييم حالة طارئة." }
             return (letter ? "اطلب من المركز الصحي شرح الرسالة وتعليمات الموعد أو الفحص. " : "اطلب تقييماً من مختص عند ظهور كتلة جديدة أو متغيرة أو شامة متغيرة أو نزيف غير مفسر أو أعراض مستمرة أو متفاقمة. ") + "هذه الإرشادات لا تشخّص السرطان ولا تستبعده."
-        case .ru:
-            if emergency { return "Если сейчас есть боль в груди, сильное затруднение дыхания, сильное кровотечение или потеря сознания, немедленно звоните 112. Не ждите направления. Этот демонстрационный сценарий не оценивает экстренные состояния." }
-            return (letter ? "Попросите медицинский центр объяснить письмо и указания о приёме или скрининге. " : "Обратитесь к специалисту при новом или меняющемся уплотнении, изменении родинки, необъяснимом кровотечении, длительных или усиливающихся симптомах. ") + "Эти рекомендации не могут диагностировать или исключить рак."
+        case .uk:
+            if emergency { return "Якщо зараз є біль у грудях, значне утруднення дихання, сильна кровотеча або втрата свідомості, негайно телефонуйте 112. Не чекайте направлення. Цей демонстраційний сценарій не оцінює невідкладні стани." }
+            return (letter ? "Попросіть медичний центр пояснити лист та вказівки щодо прийому або скринінгу. " : "Зверніться до фахівця за появи нового або зміненого ущільнення, зміни родимки, незрозумілої кровотечі чи симптомів, які тривають або посилюються. ") + "Цей демонстраційний сценарій не може діагностувати або виключити рак. Бали позначають демонстраційний пріоритет, а не оцінку медичного ризику."
         case .ne:
             if emergency { return "यदि तपाईंलाई अहिले छाती दुखेको, सास फेर्न धेरै गाह्रो भएको, धेरै रगत बगेको वा बेहोस भएको छ भने तुरुन्तै 112 मा फोन गर्नुहोस्। रेफरलको प्रतीक्षा नगर्नुहोस्। यो स्क्रिप्टेड डेमोले आपतकालीन अवस्थाको मूल्याङ्कन गर्न सक्दैन।" }
             return (letter ? "स्वास्थ्य केन्द्रलाई चिठी र अपोइन्टमेन्ट वा स्क्रिनिङ सम्बन्धी निर्देशनहरू बुझाउन भन्नुहोस्। " : "नयाँ वा परिवर्तन हुँदै गरेको गाँठो वा कोठी, कारण नखुलेको रक्तस्राव, वा लामो समयसम्म रहने वा झन् बिग्रँदै गएका लक्षणहरूका लागि चिकित्सकसँग जाँच गराउनुहोस्। ") + "यो मार्गदर्शनले क्यान्सरको निदान गर्न वा यसलाई खारेज गर्न सक्दैन।"
@@ -104,7 +104,7 @@ public struct OnDeviceTriageEngine: TriageEngine {
         case .fi: return ["Milloin huomasit tämän ensimmäisen kerran?", "Onko se muuttunut tai pahentunut?", "Onko verenvuotoa, uusi kyhmy, kipua tai parantumaton haava?", "Haluatko apua seulontakirjeen ymmärtämiseen?"]
         case .so: return ["Goormaad markii ugu horreysay aragtay?", "Ma is beddeshay ama ma ka sii dartay?", "Ma jiraa dhiigbax, buro cusub, xanuun ama nabar aan bogsan?", "Ma rabtaa caawimo fahamka warqadda baaritaanka?"]
         case .ar: return ["متى لاحظت هذا لأول مرة؟", "هل تغيّر أو ازداد سوءاً؟", "هل يوجد نزيف أو كتلة جديدة أو ألم أو قرحة لا تلتئم؟", "هل تريد مساعدة لفهم رسالة الفحص؟"]
-        case .ru: return ["Когда вы впервые это заметили?", "Это изменилось или стало хуже?", "Есть ли кровотечение, новое уплотнение, боль или незаживающая ранка?", "Нужна ли помощь с письмом о скрининге?"]
+        case .uk: return ["Коли ви вперше це помітили?", "Це змінилося або погіршилося?", "Чи є кровотеча, нове ущільнення, біль або ранка, що не загоюється?", "Чи потрібна допомога з розумінням листа про скринінг?"]
         case .ne: return ["तपाईंले यो पहिलो पटक कहिले देख्नुभयो?", "के यो परिवर्तन भएको छ वा झन् बिग्रिएको छ?", "के रगत बगेको, नयाँ गाँठो, दुखाइ वा निको नभएको घाउ छ?", "के तपाईं स्क्रिनिङ चिठी बुझ्न सहयोग चाहनुहुन्छ?"]
         }
     }

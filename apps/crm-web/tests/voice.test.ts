@@ -9,6 +9,22 @@ const generated = (language = "so") => ({ detected_language: language, reply: "W
 const geminiResponse = (value = generated()) => Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }] });
 const audio: VoiceTurnRequest = { consent: true, audio_base64: Buffer.from("synthetic-audio-bytes").toString("base64"), audio_mime_type: "audio/mp4", language: "en", profile, history: [{ role: "assistant", text: "How can I help?" }] };
 
+test("Ukrainian detection selects the Ukrainian voice and closing", async () => {
+  let calls = 0;
+  const fetcher: typeof fetch = async (url, init) => {
+    calls++;
+    if (calls === 1) return Response.json({ text: "У мене кашель уже два дні.", language_code: "ukr", language_probability: 0.99 });
+    if (calls === 2) return geminiResponse({ ...generated("uk"), reply: "Що ще?" });
+    assert.ok(String(url).includes("selected-ukrainian-voice"));
+    assert.equal(JSON.parse(init!.body as string).language_code, "uk");
+    return new Response(Buffer.from("synthetic-mp3"), { headers: { "Content-Type": "audio/mpeg" } });
+  };
+  const result = await runVoiceTurn(audio, { ...config, voices: { uk: "selected-ukrainian-voice" } }, fetcher);
+  assert.equal(result.detected_language, "uk");
+  assert.equal(result.reply, "Дякую. Надану вами інформацію записано.");
+  assert.equal(result.speech_available, true);
+});
+
 test("spoken language is detected automatically and Gemini maintains an English profile before configured-voice TTS", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const fetcher: typeof fetch = async (url, init) => {
@@ -180,7 +196,7 @@ test("completed localized turns retain urgent instructions and omit residual que
     ["ar", "اطلب المساعدة الطبية العاجلة الآن. منذ متى؟", "اطلب المساعدة الطبية العاجلة الآن."],
     ["fi", "Hakeudu heti päivystykseen. Onko muuta?", "Hakeudu heti päivystykseen."],
     ["so", "Raadi gargaar caafimaad degdeg ah hadda. Wax kale?", "Raadi gargaar caafimaad degdeg ah hadda."],
-    ["ru", "Срочно обратитесь за медицинской помощью. Что ещё?", "Срочно обратитесь за медицинской помощью."],
+    ["uk", "Негайно зверніться по медичну допомогу. Що ще?", "Негайно зверніться по медичну допомогу."],
   ]) {
     const result = await runVoiceTurn({ consent: true, text: "Synthetic concern" }, config,
       async () => geminiResponse({ ...generated(language), reply: reply! }), undefined, false);

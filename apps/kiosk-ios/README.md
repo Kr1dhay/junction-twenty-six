@@ -2,7 +2,7 @@
 
 Generate the Xcode project from root `project.yml` and run `EdgeCareKiosk`. The root Apple demo launcher inspects installed simulator devices and runtimes; it does not assume the requested OS version exists.
 
-The shared SwiftUI flow includes five-language controls (English, Finnish, Somali, Arabic, Russian), Arabic layout direction, a structured symptom/duration/severity form, optional original-language notes, offline Apple dictation when supported, letter OCR on device, and optional skin evidence with an explicit absent-model notice. Structured choices map to English clinical fields. No skin diagnosis is performed, and no raw photo is retained or uploaded.
+The shared SwiftUI flow includes six-language controls (English, Finnish, Somali, Arabic, Ukrainian, Nepali), Arabic layout direction, a structured symptom/duration/severity form, optional original-language notes, offline Apple dictation when supported, letter OCR on device, and optional skin evidence with an explicit absent-model notice. Structured choices map to English clinical fields. No skin diagnosis is performed, and no raw photo is retained or uploaded.
 
 Optional online conversation records up to 30 seconds per turn, uses ElevenLabs language detection and spoken replies with a Google-produced English profile, and supports typed turns and profile corrections. Explicit consent explains the external providers and their retention policies. Without connectivity or configured providers the full structured form remains usable.
 
