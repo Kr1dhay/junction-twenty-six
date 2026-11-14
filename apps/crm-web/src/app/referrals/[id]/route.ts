@@ -1,3 +1,4 @@
+import { OwnershipError } from "../../../server/profile-deletion";
 import { backend } from "../../../server/backend";
 import { accessGuard } from "../../../server/auth";
 import { canonicalID, demoGuard, json, readJSON } from "../../../server/http";
@@ -28,6 +29,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     if (error instanceof MissingError) return json({ error: error.message }, 404);
     if (error instanceof ConflictError) return json({ error: error.message }, 409);
+    throw error;
+  }
+}
+
+/** Explicit patient erasure: a device token alone cannot delete an existing profile. */
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const guard = demoGuard() ?? accessGuard(request, "clinician"); if (guard) return guard;
+  const { id } = await context.params;
+  if (!canonicalID(id)) return json({ error: "Invalid referral ID" }, 400);
+  let body: unknown;
+  try { body = await readJSON(request, 1024); } catch { return json({ error: "Expected a bounded deletion request" }, 400); }
+  const parsed = z.object({ encryption_key: z.string().regex(/^[A-Za-z0-9+/]{43}=$/) }).strict().safeParse(body);
+  if (!parsed.success) return json({ error: "Invalid deletion proof" }, 400);
+  try {
+    await backend().deleteProfile(id, parsed.data.encryption_key);
+    return json({ deleted: true });
+  } catch (error) {
+    if (error instanceof OwnershipError) return json({ error: error.message }, 403);
     throw error;
   }
 }

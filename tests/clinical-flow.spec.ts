@@ -129,3 +129,29 @@ test("a confirmed consultation appears on the referral with structured notes and
   await expect(card.locator('.transcript p[lang="so"]')).toHaveText(["Muddo intee le'eg ayaad calaamaddan qabtay?", "Qiyaastii laba bilood."]);
   await expect(card.locator(".transcript li").nth(1).locator(".translation")).toHaveText("About two months.");
 });
+
+test("patient deletion removes the referral and consultation from the live CRM and rejects replay", async ({ page, request }) => {
+  const record = enrollment();
+  const key = Buffer.from(hkdfSync("sha256", Buffer.from("1234"), Buffer.from(record.salt, "base64"), Buffer.from("edgecare.referral.v1"), 32));
+  expect((await request.put(`/demo/commitments/${record.referral_id}`, { data: { commitment_hash: record.commitment_hash } })).ok()).toBeTruthy();
+  expect((await request.post("/referrals", { data: record })).status()).toBe(201);
+  const consultation = { ...JSON.parse(readFileSync("packages/shared-types/fixtures/consultation.json", "utf8")), consultation_id: randomUUID(), referral_id: record.referral_id };
+  expect((await request.post(`/referrals/${record.referral_id}/consultations`, { data: consultation })).status()).toBe(201);
+  await page.goto("/");
+  await page.getByRole("searchbox", { name: "Search referrals" }).fill(record.referral_id);
+  await expect(page.locator(".referral-row")).toHaveCount(1);
+  await expect(page.locator(".detail-id code")).toHaveText(record.referral_id);
+  await expect(page.locator(".consultation-card")).toHaveCount(1);
+  expect((await request.delete(`/referrals/${record.referral_id}`, { data: { encryption_key: Buffer.alloc(32, 0).toString("base64") } })).status()).toBe(403);
+  await expect(page.locator(".referral-row")).toHaveCount(1);
+  const proof = { encryption_key: key.toString("base64") };
+  expect((await request.delete(`/referrals/${record.referral_id}`, { data: proof })).status()).toBe(200);
+  await expect(page.locator(".referral-row")).toHaveCount(0);
+  await expect(page.locator(".detail-id code")).toHaveCount(0);
+  await expect(page.locator(".consultation-card")).toHaveCount(0);
+  expect((await request.get(`/referrals/${record.referral_id}`)).status()).toBe(404);
+  expect((await request.get(`/referrals/${record.referral_id}/consultations`)).status()).toBe(404);
+  expect((await request.get(`/demo/commitments/${record.referral_id}`)).status()).toBe(404);
+  expect((await request.delete(`/referrals/${record.referral_id}`, { data: proof })).status()).toBe(200);
+  expect((await request.post("/referrals", { data: record })).status()).toBe(410);
+});

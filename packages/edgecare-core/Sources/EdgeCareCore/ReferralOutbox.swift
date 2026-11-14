@@ -24,6 +24,7 @@ public actor ReferralOutbox {
         var records: [ReferralRecord] = []
         var spends: [PendingSpend] = []
         var receipts: [SpendReceipt] = []
+        var discarded: Set<String>? = nil
     }
     private let storage: LocalStorage
     private var state: State
@@ -35,16 +36,26 @@ public actor ReferralOutbox {
             state = State(records: try JSONDecoder().decode([ReferralRecord].self, from: Data(contentsOf: storeURL)))
         } else { state = try storage.read(State.self) ?? State() }
     }
+    public func discard(referralID: String) throws {
+        var updated = state
+        updated.records.removeAll { $0.id == referralID }
+        updated.spends.removeAll { $0.referralID == referralID }
+        updated.receipts.removeAll { $0.referralID == referralID }
+        updated.discarded = (updated.discarded ?? []).union([referralID])
+        try save(updated)
+    }
     public func pending() -> [ReferralRecord] { state.records }
     public func pendingSpends() -> [PendingSpend] { state.spends }
     private func save(_ updated: State) throws { try storage.write(updated); state = updated }
     public func enqueue(_ record: ReferralRecord) throws {
+        guard state.discarded?.contains(record.id) != true else { throw CoreError.notFound }
         if let existing = state.records.first(where: { $0.id == record.id }) {
             guard existing == record else { throw CoreError.conflict }; return
         }
         var updated = state; updated.records.append(record); try save(updated)
     }
     public func enqueueSpend(_ spend: PendingSpend) throws {
+        guard state.discarded?.contains(spend.referralID) != true else { throw CoreError.notFound }
         try validateCommitment(referralID: spend.referralID, hash: spend.commitmentHash)
         guard UUID(uuidString: spend.operationID) != nil else { throw CoreError.invalidConfiguration }
         guard !state.spends.contains(where: { $0.referralID == spend.referralID }),
@@ -79,8 +90,25 @@ public actor ReferralOutbox {
         var conflicts: [String] = []
         try await applyReceipts(to: wallet)
         while let record = state.records.first {
-            try await chain.create(referralID: record.id, hash: record.commitmentHash)
-            try await api.submit(record)
+            if let wallet, await wallet.deletionRequested(id: record.id) {
+                try discard(referralID: record.id); continue
+            }
+            do {
+                try await chain.create(referralID: record.id, hash: record.commitmentHash)
+                guard state.discarded?.contains(record.id) != true else { continue }
+                if let wallet, await wallet.deletionRequested(id: record.id) {
+                    try discard(referralID: record.id); continue
+                }
+                try await api.submit(record)
+            } catch CoreError.deleted {
+                // A different device deleted this referral. Drop this stale upload and
+                // continue unrelated enrollments, rather than blocking the whole queue.
+                try await wallet?.beginDeletion(id: record.id)
+                try await wallet?.remove(id: record.id)
+                try discard(referralID: record.id)
+                continue
+            }
+            guard state.discarded?.contains(record.id) != true else { continue }
             if let wallet, await wallet.entry(id: record.id) != nil {
                 try await wallet.update(id: record.id, state: .available, account: try await chain.read(referralID: record.id))
             }
@@ -93,8 +121,20 @@ public actor ReferralOutbox {
                 // Do not read-and-reject spent before this call: this stable operation may have won
                 // previously and lost its HTTP response. The registry recognizes its operation ID.
                 try await chain.spend(referralID: spend.referralID, hash: spend.commitmentHash, operationID: spend.operationID)
+            } catch CoreError.notFound {
+                // A missing commitment alone does not prove the patient's profile was
+                // deleted. Confirm that the enrollment is absent before clearing data.
+                do { _ = try await api.fetchVerificationEnvelope(id: spend.referralID) }
+                catch CoreError.notFound {
+                    try await wallet?.beginDeletion(id: spend.referralID)
+                    try await wallet?.remove(id: spend.referralID)
+                    try discard(referralID: spend.referralID)
+                    continue
+                }
+                throw CoreError.notFound
             } catch CoreError.alreadySpent { conflict = true }
               catch CoreError.conflict { conflict = true }
+            guard state.discarded?.contains(spend.referralID) != true else { continue }
             // Transport/auth errors throw before any removal, preserving this exact operation for retry.
             var updated = state
             updated.spends.removeAll { $0.id == spend.id }

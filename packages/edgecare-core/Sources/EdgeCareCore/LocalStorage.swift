@@ -48,15 +48,28 @@ public struct WalletEntry: Codable, Equatable, Sendable, Identifiable {
 public actor ReferralWallet {
     private let storage: LocalStorage
     private var entries: [WalletEntry]
+    private var blocked: Set<String>
+    private struct State: Codable { let entries: [WalletEntry]; let blocked: Set<String> }
+    private func hash(_ id: String) -> String { SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined() }
+    public func deletionRequested(id: String) -> Bool { blocked.contains(hash(id)) }
+    public func beginDeletion(id: String) throws {
+        let updated = blocked.union([hash(id)])
+        try storage.write(State(entries: entries, blocked: updated)); blocked = updated
+    }
+    private func save(_ updated: [WalletEntry]) throws {
+        try storage.write(State(entries: updated, blocked: blocked)); entries = updated
+    }
     public init(storeURL: URL, key: Data) throws {
         guard key.count == 32 else { throw CoreError.invalidConfiguration }
         storage = LocalStorage(url: storeURL, key: key)
-        entries = try storage.read([WalletEntry].self) ?? []
+        if let current = try? storage.read(State.self) { entries = current.entries; blocked = current.blocked }
+        else { entries = try storage.read([WalletEntry].self) ?? []; blocked = [] }
     }
     public func records() -> [ReferralRecord] { entries.map(\.record) }
     public func allEntries() -> [WalletEntry] { entries.sorted { $0.record.createdAt > $1.record.createdAt } }
     public func entry(id: String) -> WalletEntry? { entries.first { $0.id == id } }
     public func store(_ record: ReferralRecord, state: WalletState = .available, account: CommitmentAccount? = nil) throws {
+        guard !deletionRequested(id: record.id) else { throw CoreError.notFound }
         var updated = entries
         if let index = updated.firstIndex(where: { $0.id == record.id }) {
             guard updated[index].record.commitmentHash == record.commitmentHash else { throw CoreError.conflict }
@@ -65,13 +78,13 @@ public actor ReferralWallet {
             let retainedState = [.spent, .provisionalSpend, .conflict].contains(old.state) ? old.state : state
             updated[index] = WalletEntry(record: record, state: retainedState, cachedAccount: account ?? old.cachedAccount)
         } else { updated.append(WalletEntry(record: record, state: state, cachedAccount: account)) }
-        try storage.write(updated); entries = updated
+        try save(updated)
     }
     public func update(id: String, state: WalletState, account: CommitmentAccount? = nil) throws {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { throw CoreError.notFound }
         var updated = entries; updated[index].state = state
         if let account { updated[index].cachedAccount = account }
-        try storage.write(updated); entries = updated
+        try save(updated)
     }
     /// Atomically refreshes an available entry; remote reads cannot overwrite a pending spend or conflict.
     func reconcile(account: CommitmentAccount, id: String) throws {
@@ -81,9 +94,9 @@ public actor ReferralWallet {
         var updated = entries
         updated[index].cachedAccount = account
         if account.spent { updated[index].state = .spent }
-        try storage.write(updated); entries = updated
+        try save(updated)
     }
     public func remove(id: String) throws {
-        let updated = entries.filter { $0.id != id }; try storage.write(updated); entries = updated
+        let updated = entries.filter { $0.id != id }; try save(updated)
     }
 }

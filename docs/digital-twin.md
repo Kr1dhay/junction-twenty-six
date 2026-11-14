@@ -1,46 +1,35 @@
 # Access digital twin
 
-`/digital-twin` in the CRM is a 3D simulation of where primary care is delivered in Helsinki. It suggests where **one extra clinician, one on-site interpreter or one mobile clinic** would improve access most. It models places and services, never people: no patient, referral, address, nationality or immigration status is used or shown.
+`/digital-twin` in the CRM is a 3D simulation of public primary care across mainland Finland. It answers four plain questions on the map:
+- How far is care?
+- Is there enough GP capacity?
+- How long are the waits?
+- Who may need an interpreter?
 
-## What it models
+It then tests where **one more GP, one on-site interpreter or one mobile clinic stop** would help most. It models places and services, never people: no patient, referral, address, nationality, citizenship or immigration status is used.
 
-| Model input | Source | Status |
-| --- | --- | --- |
-| Residents per 250 m cell | HSY population grid, 31.12.2024 (CC BY 4.0) | Published |
-| Share of residents with a mother tongue other than Finnish, Swedish or Sami, and share aged 75+, per sub-district | City of Helsinki Aluesarjat, 2025 (CC BY 4.0) | Published |
-| Health stations, weekly opening hours (8–16 vs evening, early and Saturday), wheelchair accessibility shortcomings | Helsinki Service Map (CC BY 4.0) | Published |
-| Public libraries as candidate mobile-clinic stops | Helsinki Service Map (CC BY 4.0) | Published |
-| Clinicians per station, interpreting coverage, share needing evening hours, absence rate, mobile-clinic hours | — | **Planning assumptions**, set on the page |
-| Travel times | Straight-line distance × detour factor: walking, step-free walking, or public transport plus a wait | **Estimate**, not a journey planner |
+## Data (`pnpm twin:snapshot` rebuilds `apps/crm-web/src/lib/twin-snapshot.json`)
 
-Two demand groups use area-level proxies. "May need an interpreter" is the sub-district share of residents by mother tongue; many of them need no interpreter. "Needs a step-free route" is the share aged 75+.
+| What | Source |
+| --- | --- |
+| Residents and aged 65+ per 1 km square (summed to 2 km) | Statistics Finland population grid 2024, CC BY 4.0 |
+| Foreign-language speakers by municipality (mother tongue) | Statistics Finland StatFin 11rm, CC BY 4.0 |
+| GP visits per 1,000 residents; non-urgent visits waiting over 7 days | THL Sotkanet 4123 and 6411, CC BY 4.0 |
+| Health stations and opening hours | Suomi.fi Service Catalogue, with gaps filled from OpenStreetMap (ODbL) |
+| Villages as candidate mobile-clinic stops | OpenStreetMap (ODbL) |
+
+Åland is excluded because ÅHS runs its health care separately. 19 municipalities have no station in either listing. Some of them do have one, so the page marks results there "check locally".
 
 ## Method
 
-Access uses the enhanced two-step floating catchment area method (E2SFCA, Luo & Qi 2009) with a 40-minute Gaussian travel-time decay:
+- **Travel time** is estimated from straight-line distance × 1.3 road detour:
+  - by car at 30/50/70 km/h in urban/town/rural squares, plus 4 minutes;
+  - without a car, the faster of walking and a bus that waits 8/25/60 minutes.
 
-1. Each station's weekly appointment hours are divided by every resident who can reach it, weighted by travel time.
-2. Each cell sums the stations it can reach. Each group reaches only the share that suits it: interpreting coverage for the language group, the station's step-free rating and slower routes for the 75+ group, and the share of hours outside 8–16 for the evening group.
-
-The **access gap** is Σ residents × how far their access falls below the Helsinki average, summed over the four groups.
-
-**Scenarios.** Each run simulates 120 weeks. Each week varies clinician absence, sub-district demand (±8%), travel speed (−10% to +25%) and a 10% chance that one station closes unexpectedly. Within each week, every possible placement is scored: each open station for a clinician or an interpreter, and each library for a mobile clinic. That is about 11,000 scenarios, run in the browser in about a second. All placements in a week share the same random draw. The run is seeded, so the same settings give the same answer. Each suggestion shows:
-- the mean share of the access gap it closes;
-- the 5–95% range across simulated weeks;
-- how often it was the best choice.
-
-**Disruptions** you can switch on: a public transport strike (walking only), phone and video interpreting being unavailable, or one health station being closed.
-
-## Limits
-
-- Travel times ignore the street network and water. Trips to and across islands are understated.
-- In E2SFCA a new site does not draw demand away from other sites' ratios. A gain is the direct effect of the added capacity.
-- Clinician numbers and interpreting coverage are not published. Treat the results as a ranking of places to look at with local teams, not a forecast.
-
-## Refreshing the data
-
-```sh
-pnpm twin:snapshot   # rewrites apps/crm-web/src/lib/twin-snapshot.json from the public APIs
-```
-
-The engine is `apps/crm-web/src/lib/twin.ts`. Its tests are in `apps/crm-web/tests/twin.test.ts`. They check, among other things, that the fast per-candidate estimate equals a full recompute and that the snapshot holds only aggregate fields.
+  Snow adds 30%. A bus strike leaves walking only.
+- **GP capacity**: each station delivers its municipality's published GP visits for the residents who use it. A square's residents are shared across stations within 5 km of its nearest. Access is two-step floating catchment (30-minute Gaussian, car) and is reported as GP visits a year within reach per 1,000 residents.
+- **Scores**:
+  - GP: extra visits that reach people below the national average, weighted by how far below they are.
+  - Interpreter: foreign-language speakers who use the station and live within 30 minutes.
+  - Mobile clinic: people brought within 30 minutes of care. Over-65s travel without a car with the planning share set on the page.
+- **Simulation**: 40 weeks, each varying road speed, demand (±8% per municipality), GP availability (±10% per station) and a 15% chance of one surprise closure. Every place is scored in every week, and the run is seeded. Results show the mean, the 5–95% range and how often each place made the top 3.

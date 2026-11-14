@@ -218,6 +218,9 @@ public struct DoctorVerificationView: View {
                 if record.letterScan.present { Text(record.letterScan.extractedText ?? "Letter noted; no readable text.") }
                 if record.lesionPhoto.present { Text(record.lesionPhoto.assessment ?? "Skin concern noted. No medical image model available.") }
             }
+            if let result = record.voiceResearch {
+                Section { VoiceResearchResultView(result: result, language: language) }
+            }
             if let verification {
                 Section("Patient") {
                     Label("PATIENT VERIFIED", systemImage: "checkmark.seal.fill")

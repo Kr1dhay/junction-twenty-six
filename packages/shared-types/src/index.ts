@@ -3,6 +3,23 @@ import { z } from "zod";
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).min(4);
 export const commitmentRequestSchema = z.object({ commitment_hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 export const spendRequestSchema = commitmentRequestSchema.extend({ operation_id: z.string().uuid().optional() }).strict();
+/** Research observation only. No diagnosis, cancer probability, or triage score. */
+export const voiceResearchAssessmentSchema = z.object({
+  outcome: z.enum(["flagged", "not_flagged", "inconclusive"]),
+  assessed_at: z.string().datetime(),
+  model_id: z.string().min(1).max(120),
+  model_version: z.string().min(1).max(120),
+  sample_duration_seconds: z.number().finite().min(2).max(12),
+  research_only: z.literal(true),
+}).strict();
+export type VoiceResearchAssessment = z.infer<typeof voiceResearchAssessmentSchema>;
+export const voiceResearchRequestSchema = z.object({
+  consent: z.literal(true),
+  task: z.literal("sustained_a"),
+  capture_mode: z.literal("measurement"),
+  audio_base64: base64.max(700 * 1024),
+}).strict();
+export type VoiceResearchRequest = z.infer<typeof voiceResearchRequestSchema>;
 export const referralSchema = z.object({
   referral_id: z.string().uuid().transform(value => value.toLowerCase()),
   created_at: z.string().datetime(),
@@ -17,6 +34,7 @@ export const referralSchema = z.object({
   recommended_specialty: z.string().min(1).max(120),
   letter_scan: z.object({ present: z.boolean(), extracted_text: z.string().max(10000).nullable() }).strict(),
   lesion_photo: z.object({ present: z.boolean(), assessment: z.string().max(10000).nullable() }).strict(),
+  voice_research: voiceResearchAssessmentSchema.optional(),
   signature_template_encrypted: base64.min(40),
   triage_detail_encrypted: base64.min(40),
   salt: base64.refine(value => Buffer.from(value, "base64").length === 16, "Salt must contain 16 bytes"),
@@ -32,7 +50,7 @@ export interface StatusEvent { status: ReferralStatus; at: string }
 export type CRMReferral = Pick<ReferralRecord,
   "referral_id" | "created_at" | "language" | "symptoms" | "free_text_summary" |
   "patient_language_summary" | "risk_score" | "risk_band" | "recommended_specialty" |
-  "letter_scan" | "lesion_photo" | "status" | "expires_at"
+  "letter_scan" | "lesion_photo" | "voice_research" | "status" | "expires_at"
 > & { status_history: StatusEvent[] };
 
 // An allowlist prevents newly added private fields leaking through a spread.
@@ -44,6 +62,7 @@ export function toCRMReferral(record: ReferralRecord, history: StatusEvent[] = [
     risk_band: record.risk_band, recommended_specialty: record.recommended_specialty,
     letter_scan: record.letter_scan, lesion_photo: record.lesion_photo,
     status: record.status, expires_at: record.expires_at, status_history: history,
+    ...(record.voice_research === undefined ? {} : { voice_research: record.voice_research }),
   };
 }
 

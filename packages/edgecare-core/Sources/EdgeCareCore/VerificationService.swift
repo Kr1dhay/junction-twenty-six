@@ -6,10 +6,10 @@ public struct VerificationService: Sendable {
     /// It confirms that the signature and code belong to this referral. It deliberately does
     /// not consume the referral, and it still succeeds after single use so a clinician can
     /// re-authenticate the same patient for a new visit.
-    public static func authenticate(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date()) throws -> String {
+    public static func authenticate(record: ReferralRecord, passcode: String, strokes: [[SignaturePoint]], now: Date = Date(), allowExpiredForDeletion: Bool = false) throws -> String {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let expiry = formatter.date(from: record.expiresAt) ?? ISO8601DateFormatter().date(from: record.expiresAt)
-        guard let expiry, expiry > now else { throw CoreError.expired }
+        guard let expiry, allowExpiredForDeletion || expiry > now else { throw CoreError.expired }
         guard let salt = Data(base64Encoded: record.salt), let encrypted = Data(base64Encoded: record.signatureTemplateEncrypted),
               let id = UUID(uuidString: record.id) else { throw CoreError.verificationFailed }
         let enrolledData: Data

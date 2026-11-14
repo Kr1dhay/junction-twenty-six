@@ -23,13 +23,14 @@ Native clients use `Authorization: Bearer TOKEN`: `EDGECARE_ISSUER_TOKEN` for en
 | `POST /referrals` | Issuer | Validated enrollment: 201 create, 200 identical retry, 409 different content for an existing ID. Initial status must be `open`. |
 | `GET /referrals` | Clinician | `{ referrals: CRMReferral[] }`, newest first; filters/sorting run in the CRM. |
 | `GET /referrals/:id` | Clinician | Allowlisted detail, or 404. |
+| `DELETE /referrals/:id` | Patient using authorized device | Body `{ encryption_key }` after local code/signature login; authenticates the sealed clinical payload, then atomically deletes profile, consultations, appointments and commitment. 200 on success/retry, 403 invalid ownership proof. See [patient deletion](docs/patient-deletion.md). |
 | `GET /referrals/:id/verification` | Clinician | Encrypted enrollment envelope for on-device decryption, or 404. |
 | `PUT /demo/commitments/:id` | Issuer | Body `{ commitment_hash }`; creates a shared synthetic commitment. Same-hash retry succeeds, conflicting hash returns 409. |
 | `GET /demo/commitments/:id` | Clinician | `{ commitment_hash, spent, created_slot, spent_slot }`, or 404. |
 | `POST /demo/commitments/:id/spend` | Clinician | Body `{ commitment_hash, operation_id }`; atomically consumes the commitment. Same operation retry succeeds; a competing spend returns 409. |
 | `GET /health` | Development | Readiness and synthetic demo mode. |
 
-Errors use `{ error: string }`. Invalid input returns 400, missing authorization 401, forbidden origins 403, missing records 404 and conflicts 409. `operation_id` is a stable UUID persisted before sending. Legacy clients may omit it, but then cannot distinguish a lost successful response from another spender.
+Errors use `{ error: string }`. Invalid input returns 400, missing authorization 401, forbidden origins 403, missing records 404 and conflicts 409. Enrollment/commitment replay for a deleted profile returns 410, so a queued offline upload cannot recreate it. `operation_id` is a stable UUID persisted before sending. Legacy clients may omit it, but then cannot distinguish a lost successful response from another spender.
 
 SQLite stores the shared mock registry and reconciles referral status on read. The CRM polls every two seconds; a spend becomes visible without a manual refresh. A registry spend outranks expiry when deriving final display status.
 

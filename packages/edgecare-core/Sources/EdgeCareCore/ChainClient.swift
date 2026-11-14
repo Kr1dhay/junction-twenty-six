@@ -32,10 +32,11 @@ public actor MockChainClient: ChainClient {
     private let storage: LocalStorage
     private var accounts: [String: CommitmentAccount]
     private var receipts: [String: String]
-    private struct State: Codable { var accounts: [String: CommitmentAccount]; var receipts: [String: String] }
+    private var deleted: Set<String> = []
+    private struct State: Codable { var accounts: [String: CommitmentAccount]; var receipts: [String: String]; var deleted: Set<String>? = nil }
     public init(storeURL: URL) throws {
         storage = LocalStorage(url: storeURL, key: nil)
-        if let saved = try? storage.read(State.self) { accounts = saved.accounts; receipts = saved.receipts }
+        if let saved = try? storage.read(State.self) { accounts = saved.accounts; receipts = saved.receipts; deleted = saved.deleted ?? [] }
         else if FileManager.default.fileExists(atPath: storeURL.path) {
             // Migration from the scaffold's hash-only dictionary; never contains health information.
             struct OldAccount: Decodable {
@@ -47,16 +48,24 @@ public actor MockChainClient: ChainClient {
         } else { accounts = [:]; receipts = [:] }
     }
     private func save(_ updated: [String: CommitmentAccount], receipts updatedReceipts: [String: String]) throws {
-        try storage.write(State(accounts: updated, receipts: updatedReceipts)); accounts = updated; receipts = updatedReceipts
+        try storage.write(State(accounts: updated, receipts: updatedReceipts, deleted: deleted)); accounts = updated; receipts = updatedReceipts
     }
     public func create(referralID: String, hash: String) throws {
         try validateCommitment(referralID: referralID, hash: hash)
+        guard !deleted.contains(referralID) else { throw CoreError.deleted }
         if let old = accounts[referralID] {
             guard old.commitmentHash == hash else { throw CoreError.conflict }; return
         }
         var updated = accounts
         updated[referralID] = CommitmentAccount(commitmentHash: hash, spent: false, createdSlot: UInt64(accounts.count + 1))
         try save(updated, receipts: receipts)
+    }
+    public func removeProfile(referralID: String) throws {
+        var updated = accounts; updated.removeValue(forKey: referralID)
+        var updatedReceipts = receipts; updatedReceipts.removeValue(forKey: referralID)
+        let updatedDeleted = deleted.union([referralID])
+        try storage.write(State(accounts: updated, receipts: updatedReceipts, deleted: updatedDeleted))
+        accounts = updated; receipts = updatedReceipts; deleted = updatedDeleted
     }
     public func read(referralID: String) -> CommitmentAccount? { accounts[referralID] }
     public func spend(referralID: String) throws {

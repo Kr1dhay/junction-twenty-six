@@ -4,8 +4,34 @@ import XCTest
 final class UkrainianTests: XCTestCase {
     func testLanguageAndSpeechLocale() {
         XCTAssertEqual(SupportedLanguage.resolve("uk-UA"), .uk)
+        XCTAssertEqual(SupportedLanguage.resolve("ukr"), .uk)
         XCTAssertEqual(SupportedLanguage.uk.speechLocale, "uk-UA")
         XCTAssertEqual(SupportedLanguage.allCases.map(\.rawValue), ["en", "fi", "so", "ar", "uk", "ne"])
+    }
+
+    func testUkrainianEmergencyPhrases() async throws {
+        for concern in ["Біль у грудях", "Біль в грудях", "Важко дихати", "Не можу дихати",
+                        "Сильна кровотеча", "Втрата свідомості", "Людина непритомна"] {
+            let guidance = try await OnDeviceTriageEngine().guidance(for: concern, language: "uk-UA")
+            XCTAssertTrue(guidance.requiresEmergencyHelp, concern)
+            XCTAssertTrue(guidance.message.contains("негайно телефонуйте 112"), concern)
+        }
+    }
+
+    func testUkrainianSymptomsAndScreeningStayInEnglishClinicalFields() async throws {
+        for (concern, symptom, question) in [
+            ("Родимка на шкірі", "skin_change", SafetyQuestionID.followSkin),
+            ("Нове ущільнення", "lump_or_swelling", .followLump),
+            ("Кашляю вже місяць", "cough", .followCough),
+            ("Незрозуміла кровотеча", "unexplained_bleeding", .followBleeding),
+            ("Лист про скринінг", "screening_letter", .followScreening)
+        ] {
+            let guidance = try await OnDeviceTriageEngine().guidance(for: concern, language: "uk")
+            XCTAssertTrue(guidance.symptoms.contains(symptom), concern)
+            XCTAssertTrue(guidance.clinicianSummary.contains(symptom), concern)
+            XCTAssertTrue(guidance.message.contains("не може діагностувати або виключити рак"), concern)
+            XCTAssertTrue(SafetyQuestionnaire.plan(originalConcern: concern).map(\.id).contains(question), concern)
+        }
     }
 
     func testUkrainianEmergencyAndSymptomRouting() async throws {

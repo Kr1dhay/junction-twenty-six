@@ -25,6 +25,40 @@ test("Ukrainian detection selects the Ukrainian voice and closing", async () => 
   assert.equal(result.speech_available, true);
 });
 
+test("Ukrainian regional and ISO language codes agree with detected speech", async () => {
+  for (const language of ["uk-UA", "ukr-UA"]) {
+    let calls = 0;
+    const result = await runVoiceTurn(audio, config, async () => ++calls === 1
+      ? Response.json({ text: "У мене кашель уже два дні.", language_code: "ukr", language_probability: 0.99 })
+      : geminiResponse({ ...generated(language), reply: "Що ще?" }), undefined, false);
+    assert.equal(result.detected_language, "uk");
+    assert.equal(result.reply, "Дякую. Надану вами інформацію записано.");
+  }
+});
+
+test("typed Ukrainian regional codes use the default voice without an override", async () => {
+  let calls = 0;
+  const result = await runVoiceTurn({ consent: true, text: "У мене кашель уже два дні.", language: "uk-UA" }, config, async (url, init) => {
+    if (++calls === 1) return geminiResponse({ ...generated("ukr-UA"), reply: "Що ще?" });
+    assert.ok(String(url).includes(config.voiceID!));
+    assert.equal(JSON.parse(init!.body as string).language_code, "uk");
+    return new Response(Buffer.from("synthetic-mp3"), { headers: { "Content-Type": "audio/mpeg" } });
+  });
+  assert.equal(result.detected_language, "uk-ua");
+  assert.equal(result.reply, "Дякую. Надану вами інформацію записано.");
+  assert.equal(result.speech_available, true);
+});
+
+test("stopping Ukrainian intake preserves the incomplete profile and closes in Ukrainian", async () => {
+  const incomplete = { ...profile, symptoms_english: [], duration_english: "" };
+  const result = await runVoiceTurn({ consent: true, text: "Зупиніть розмову", language: "uk", profile: incomplete }, config,
+    async () => geminiResponse({ ...generated("ukr"), profile: incomplete, stop_requested: true, reply: "Як довго це триває?" }), undefined, false);
+  assert.equal(result.reply, "На цьому зупинимося.");
+  assert.equal(result.conversation_ended, true);
+  assert.equal(result.intake_complete, false);
+  assert.deepEqual(result.profile, incomplete);
+});
+
 test("spoken language is detected automatically and Gemini maintains an English profile before configured-voice TTS", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const fetcher: typeof fetch = async (url, init) => {

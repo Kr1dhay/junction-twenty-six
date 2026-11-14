@@ -1,0 +1,5 @@
+-r requirements.txt
+# Exact sklearn/joblib versions used for the reviewed offline export.
+scikit-learn==1.4.1.post1
+joblib==1.4.2
+pandas==2.2.3

@@ -5,7 +5,7 @@ Four applications for an anonymous cancer-care demonstration, in one monorepo. T
 | Application | Implementation |
 | --- | --- |
 | `apps/kiosk-ios` | SwiftUI iPad intake: structured form, conversational voice, evidence capture and enrollment |
-| `apps/patient-ios` | Shared intake on iPhone, encrypted wallet and referral-ID handoff |
+| `apps/patient-ios` | Shared intake, encrypted wallet, referral-ID handoff and patient-controlled profile/history deletion |
 | `apps/doctor-ios` | Referral selection, cached verification, signature/PIN checks and spend reconciliation |
 | `apps/crm-web` | Next.js clinician workspace, REST API, local SQLite and hosted Neon Postgres |
 
@@ -46,6 +46,10 @@ Voice requires explicit consent, connectivity and server-side ElevenLabs plus Ge
 ## Kiosk appointment booking
 
 The kiosk can book shared demo appointment slots from its welcome screen or after saving a referral. Existing patients verify with their code and signature. Bookings and cancellations persist in the shared backend and appear in the CRM. These are demo appointments; no real clinic booking service is connected. See [appointment setup and Mac update](docs/appointments.md).
+
+## Patient profile and history deletion
+
+On the patient phone, open **My profile** and sign in with the enrolled code and signature. **Delete my profiles and history** permanently removes the displayed profiles, referrals, consultations and appointments from the connected backend and this device, after confirmation. Local mode deletes only local-mode records. See [deletion scope, privacy limits and Mac rebuild](docs/patient-deletion.md).
 
 ## Checks and additional tools
 

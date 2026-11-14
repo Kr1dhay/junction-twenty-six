@@ -112,5 +112,22 @@ public struct ConsentGatedVoiceClient: Sendable {
         guard !response.reply.isEmpty, !response.detectedLanguage.isEmpty, !response.speechAvailable || response.audio != nil else { throw CoreError.invalidResponse }
         return response
     }
+    func researchAvailability() async throws -> VoiceResearchAvailability {
+        try JSONDecoder().decode(VoiceResearchAvailability.self,
+            from: await transport.request(path: ["demo", "voice", "research"]))
+    }
+    func researchAssessment(audio: Data) async throws -> VoiceResearchAssessment {
+        struct Request: Encodable {
+            let consent = true
+            let task = "sustained_a"
+            let capture_mode = "measurement"
+            let audio_base64: String
+        }
+        let response = try await transport.request(path: ["demo", "voice", "research"], method: "POST",
+            body: JSONEncoder().encode(Request(audio_base64: audio.base64EncodedString())), issuer: true)
+        let result = try JSONDecoder().decode(VoiceResearchAssessment.self, from: response)
+        guard result.isValid else { throw CoreError.invalidResponse }
+        return result
+    }
 }
 public typealias VoiceClient = ConsentGatedVoiceClient

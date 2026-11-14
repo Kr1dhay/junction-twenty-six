@@ -1,8 +1,9 @@
 import { Pool, neonConfig, type PoolClient } from "@neondatabase/serverless";
 import WebSocket from "ws";
+import { deletedID, verifyDeletionKey } from "./profile-deletion";
 import { isDeepStrictEqual } from "node:util";
 import { toCRMConsultation, toCRMReferral, type ConsultationRecord, type ReferralRecord, type CommitmentAccount } from "@edgecare/shared-types";
-import { ConflictError, MissingError } from "./repository";
+import { ConflictError, DeletedError, MissingError } from "./repository";
 import { offeredSlots, eligibleSlot, makeAppointment, type Appointment } from "./appointments";
 import { preservesReferralIdentity } from "./referral-update";
 
@@ -27,7 +28,8 @@ export class PostgresRepository {
         await client.query("BEGIN");
         try {
           await client.query("SELECT pg_advisory_xact_lock(1650740387, 0)");
-          await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_referrals (id TEXT PRIMARY KEY, payload JSONB NOT NULL);
+          await client.query(`CREATE TABLE IF NOT EXISTS edgecare_demo_deleted_referrals (id_hash TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS edgecare_demo_referrals (id TEXT PRIMARY KEY, payload JSONB NOT NULL);
             CREATE TABLE IF NOT EXISTS edgecare_demo_commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL CHECK (hash ~ '^[a-f0-9]{64}$'), spent BOOLEAN NOT NULL DEFAULT FALSE, created_slot BIGINT NOT NULL, spent_slot BIGINT, spent_at TEXT, operation_id TEXT);
             CREATE TABLE IF NOT EXISTS edgecare_demo_consultations (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, started_at TEXT NOT NULL, payload JSONB NOT NULL);
             CREATE INDEX IF NOT EXISTS edgecare_demo_consultations_referral ON edgecare_demo_consultations (referral_id, started_at);`);
@@ -39,6 +41,17 @@ export class PostgresRepository {
       }).catch(error => { this.initialized = undefined; throw error; });
     }
     await this.initialized;
+  }
+  async deleteProfile(id: string, key: string): Promise<void> {
+    await this.mutate(id, async client => {
+      const record = await this.envelope(client, id);
+      if (record) verifyDeletionKey(record, key);
+      await client.query("INSERT INTO edgecare_demo_deleted_referrals (id_hash) VALUES ($1) ON CONFLICT DO NOTHING", [deletedID(id)]);
+      await client.query("DELETE FROM edgecare_demo_consultations WHERE referral_id = $1", [id]);
+      await client.query("DELETE FROM edgecare_demo_appointments WHERE referral_id = $1", [id]);
+      await client.query("DELETE FROM edgecare_demo_referrals WHERE id = $1", [id]);
+      await client.query("DELETE FROM edgecare_demo_commitments WHERE id = $1", [id]);
+    });
   }
   async appointmentSlots() {
     await this.ready();
@@ -108,6 +121,7 @@ export class PostgresRepository {
   async create(input: ReferralRecord | string, hash?: string): Promise<{ created: boolean } | void> {
     const id = typeof input === "string" ? input : input.referral_id;
     return this.mutate(id, async client => {
+      if ((await client.query("SELECT 1 FROM edgecare_demo_deleted_referrals WHERE id_hash = $1", [deletedID(id)])).rowCount) throw new DeletedError("This profile was deleted");
       const record = await this.envelope(client, id);
       const account = (await client.query<{ hash: string }>("SELECT hash FROM edgecare_demo_commitments WHERE id = $1", [id])).rows[0];
       if (typeof input === "string") {
@@ -186,7 +200,9 @@ export class PostgresRepository {
   }
   /** Serialized per consultation; append-only and idempotent on consultation_id. */
   async createConsultation(record: ConsultationRecord): Promise<{ created: boolean }> {
-    return this.mutate(`consultation:${record.consultation_id}`, async client => {
+    return this.mutate(record.referral_id, async client => {
+      // Always lock the parent first, so deletion cannot race a consultation insert.
+      await client.query("SELECT pg_advisory_xact_lock(1650740388, hashtext($1))", [`consultation:${record.consultation_id}`]);
       if (!await this.envelope(client, record.referral_id)) throw new MissingError("Referral not found");
       const existing = (await client.query<{ payload: ConsultationRecord }>("SELECT payload FROM edgecare_demo_consultations WHERE id = $1", [record.consultation_id])).rows[0];
       if (existing) {

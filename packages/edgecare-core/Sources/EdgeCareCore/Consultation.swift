@@ -367,6 +367,9 @@ public actor ConsultationOutbox {
         }
         let updated = records + [record]; try storage.write(updated); records = updated
     }
+    public func discard(referralID: String) throws {
+        let updated = records.filter { $0.referralID != referralID }; try storage.write(updated); records = updated
+    }
     public func remove(id: String) throws {
         let updated = records.filter { $0.id != id }; try storage.write(updated); records = updated
     }

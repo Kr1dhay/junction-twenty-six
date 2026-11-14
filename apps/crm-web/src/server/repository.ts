@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { deletedID, verifyDeletionKey } from "./profile-deletion";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -7,6 +8,7 @@ import { offeredSlots, eligibleSlot, makeAppointment, type Appointment } from ".
 import { preservesReferralIdentity } from "./referral-update";
 
 export class ConflictError extends Error {}
+export class DeletedError extends ConflictError {}
 export class MissingError extends Error {}
 
 // One durable SQLite adapter for local demos; replace behind the interfaces for deployment.
@@ -17,7 +19,8 @@ export class DemoRepository implements ReferralRepository, ChainClient {
     this.db = new Database(path);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("busy_timeout = 5000");
-    this.db.exec(`CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS deleted_referrals (id_hash TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS referrals (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, hash TEXT NOT NULL, spent INTEGER NOT NULL DEFAULT 0, created_slot INTEGER NOT NULL, spent_slot INTEGER, spent_at TEXT, operation_id TEXT);
       CREATE TABLE IF NOT EXISTS consultations (id TEXT PRIMARY KEY, referral_id TEXT NOT NULL, started_at TEXT NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS consultations_referral ON consultations (referral_id, started_at);`);
@@ -28,6 +31,20 @@ export class DemoRepository implements ReferralRepository, ChainClient {
     if (!columns.some(column => column.name === "operation_id")) this.db.exec("ALTER TABLE commitments ADD COLUMN operation_id TEXT");
   }
   close() { this.db.close(); }
+  deleteProfile(id: string, key: string): void {
+    this.db.transaction(() => {
+      const record = this.verificationEnvelope(id);
+      if (record) verifyDeletionKey(record, key);
+      this.db.prepare("INSERT OR IGNORE INTO deleted_referrals (id_hash) VALUES (?)").run(deletedID(id));
+      this.db.prepare("DELETE FROM consultations WHERE referral_id = ?").run(id);
+      this.db.prepare("DELETE FROM appointments WHERE referral_id = ?").run(id);
+      this.db.prepare("DELETE FROM referrals WHERE id = ?").run(id);
+      this.db.prepare("DELETE FROM commitments WHERE id = ?").run(id);
+    }).immediate();
+  }
+  private assertNotDeleted(id: string) {
+    if (this.db.prepare("SELECT 1 FROM deleted_referrals WHERE id_hash = ?").get(deletedID(id))) throw new DeletedError("This profile was deleted");
+  }
   appointmentSlots() {
     const taken = new Set((this.db.prepare("SELECT slot_id FROM appointments WHERE active = 1 AND starts_at > ?").all(this.now().toISOString()) as { slot_id: string }[]).map(row => row.slot_id));
     return offeredSlots(this.now()).filter(slot => !taken.has(slot.slot_id));
@@ -78,6 +95,7 @@ export class DemoRepository implements ReferralRepository, ChainClient {
     if (typeof input === "string") {
       if (!hash || !/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid commitment hash");
       this.db.transaction(() => {
+        this.assertNotDeleted(input);
         const old = this.read(input);
         if (old) {
           if (old.commitment_hash !== hash) throw new ConflictError("Commitment already exists with different content");
@@ -90,6 +108,7 @@ export class DemoRepository implements ReferralRepository, ChainClient {
       return;
     }
     return this.db.transaction(() => {
+      this.assertNotDeleted(input.referral_id);
       const old = this.verificationEnvelope(input.referral_id);
       if (old) {
         if (!isDeepStrictEqual(old, input)) throw new ConflictError("Referral already exists with different content");

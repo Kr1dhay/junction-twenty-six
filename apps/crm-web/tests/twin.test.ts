@@ -1,79 +1,62 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, baselineSupply, buildWeights, candidateGain, decay, defaultAssumptions, demand, expectedWeek, librarySite, minutes,
-  noDisruptions, runScenarios, shortfall, stationSite, total, twinData, type TwinData } from "../src/lib/twin";
+import snapshot from "../src/lib/twin-snapshot.json";
+import { applyResource, carMinutes, closureImpact, decay, defaultSettings, gains, noCarMinutes, prepare, runSimulation, summary, week, type TwinData } from "../src/lib/twin";
 
-const a = defaultAssumptions;
+const data = snapshot as unknown as TwinData;
+const p = prepare(data);
+const base = week(p, defaultSettings);
 
-test("travel decay runs from 1 at the door to 0 at the catchment edge", () => {
+test("travel estimates: rural driving is faster per km, buses wait longer in the countryside", () => {
   assert.equal(decay(0), 1);
-  assert.equal(decay(40), 0);
-  assert.ok(decay(10) > decay(20) && decay(20) > decay(30));
-  // Step-free walking is slower; a strike removes the transit option.
-  assert.ok(minutes(2, true, false) > minutes(2, false, false));
-  assert.ok(minutes(6, false, false) > minutes(6, false, true));
+  assert.equal(decay(30), 0);
+  assert.ok(carMinutes(10, 0) > carMinutes(10, 2));
+  assert.ok(noCarMinutes(10, 2) > noCarMinutes(10, 0));
+  assert.ok(noCarMinutes(10, 1, 1, true) > noCarMinutes(10, 1));
 });
 
-test("E2SFCA shares a station's capacity among everyone who can reach it", () => {
-  const tiny: TwinData = { ...twinData, areas: [{ id: 1, name: "A", population: 300, foreign_language: 0.5, aged_75: 0.1 }],
-    cells: [[24.94, 60.17, 100, 0], [24.95, 60.17, 200, 0]],
-    stations: [{ ...twinData.stations[0]!, lon: 24.94, lat: 60.17, hours: { day: 40, extended: 10 }, wheelchair_shortcomings: 0 }], libraries: [] };
-  const sites = tiny.stations.map(stationSite);
-  const w = buildWeights(tiny, sites, true);
-  const people = demand(tiny, a);
-  const supply = baselineSupply(tiny, a, noDisruptions);
-  const result = access(tiny, sites, w, people, supply, a);
-  const reach = 100 * w.normal[0]! + 200 * w.normal[1]!;
-  assert.ok(Math.abs(result.ratio[0]! - supply.capacity[0]! / reach) < 1e-9);
-  assert.ok(Math.abs(result.everyone[0]! - result.ratio[0]! * w.normal[0]!) < 1e-9);
-  // Remote interpreting covers half of language needs, so that group reaches half the capacity.
-  assert.ok(Math.abs(result.language[0]! - result.everyone[0]! * a.remoteInterpreting) < 1e-9);
+test("station capacity reproduces the published national GP visit volume", () => {
+  const visits = p.capacity.reduce((sum, value) => sum + value, 0);
+  const published = data.cells.reduce((sum, cell) => sum + cell[2] * data.municipalities[cell[4]]!.gp_visits_per_1000 / 1000, 0);
+  assert.ok(Math.abs(visits - published) / published < 1e-9);
+  assert.ok(Math.abs(base.target - p.national) < 1e-6);
 });
 
-test("the fast candidate gain equals a full recompute of the city", () => {
-  const stations = twinData.stations.map(stationSite), libraries = twinData.libraries.map(librarySite), sites = [...stations, ...libraries];
-  const w = buildWeights(twinData, sites, true);
-  const people = demand(twinData, a);
-  const supply = baselineSupply(twinData, a, noDisruptions, libraries.length);
-  libraries.forEach((_, k) => { supply.interpreting[stations.length + k] = a.remoteInterpreting; });
-  const before = access(twinData, sites, w, people, supply, a);
-  for (const [resource, site] of [["clinician", stations[3]!], ["interpreter", stations[7]!], ["vehicle", libraries[5]!]] as const) {
-    const j = sites.indexOf(site);
-    const week = expectedWeek(a, noDisruptions, { resource, site });
-    const full = total(week.shortfallBefore) - total(week.shortfallAfter!);
-    const fast = candidateGain(people, before, sites, w, supply, a, resource, j);
-    assert.ok(full > 0, `${resource} should help`);
-    assert.ok(Math.abs(fast - full) / full < 1e-6, `${resource}: fast ${fast} vs full ${full}`);
+test("disruptions make care harder to reach", () => {
+  const now = summary(p, base);
+  assert.ok(summary(p, week(p, { ...defaultSettings, storm: true })).farByCar > now.farByCar);
+  assert.ok(summary(p, week(p, { ...defaultSettings, busStrike: true })).far65NoCar > now.far65NoCar);
+  const j = data.stations.findIndex(station => /Kontula/.test(station.name));
+  const closed = week(p, { ...defaultSettings, closed: [data.stations[j]!.id] });
+  const impact = closureImpact(p, base, closed, j);
+  assert.ok(impact.moved > 1000 && impact.lostVisits > 0 && impact.to.length > 0);
+  assert.ok(impact.to.every(destination => destination.station !== j));
+});
+
+test("each resource's gain matches what the map shows after placing it", () => {
+  for (const resource of ["gp", "interpreter", "clinic"] as const) {
+    const g = gains(p, base, defaultSettings, resource);
+    const best = g.indexOf(Math.max(...g));
+    assert.ok(g[best]! > 0, resource);
+    const placed = applyResource(p, defaultSettings, base, resource, best);
+    assert.ok(placed.helped.length > 0, resource);
+    if (resource === "clinic") assert.ok(Math.abs(placed.helped.reduce((sum, h) => sum + h.amount, 0) - g[best]!) < 1e-6);
+    if (resource === "gp") assert.ok(placed.recipientsAccess < base.target);
   }
 });
 
-test("disruptions make access worse", () => {
-  const base = total(expectedWeek(a, noDisruptions).shortfallBefore);
-  assert.ok(total(expectedWeek(a, { ...noDisruptions, transitStrike: true }).shortfallBefore) > base);
-  const noInterpreting = expectedWeek(a, { ...noDisruptions, remoteInterpretingDown: true }).shortfallBefore;
-  assert.ok(noInterpreting.language > expectedWeek(a, noDisruptions).shortfallBefore.language);
-  const busiest = expectedWeek(a, noDisruptions);
-  const closed = expectedWeek(a, { ...noDisruptions, closed: [twinData.stations[0]!.id] });
-  assert.ok(total(shortfall(closed.people, closed.before, busiest.target)) > total(busiest.shortfallBefore));
+test("simulations are seeded and repeatable", () => {
+  const one = runSimulation(p, defaultSettings, "interpreter", 3, 7), two = runSimulation(p, defaultSettings, "interpreter", 3, 7);
+  assert.deepEqual(Array.from(one.mean), Array.from(two.mean));
+  assert.equal(one.scenarios, 3 * data.stations.length);
+  assert.notDeepEqual(Array.from(runSimulation(p, defaultSettings, "interpreter", 3, 8).mean), Array.from(one.mean));
 });
 
-test("scenario runs are seeded and repeatable", async () => {
-  const options = { draws: 4, assumptions: a, disruptions: noDisruptions };
-  const one = await runScenarios({ ...options, seed: 7 }), two = await runScenarios({ ...options, seed: 7 });
-  assert.deepEqual(one, two);
-  assert.equal(one.scenarios, 4 * (twinData.stations.length * 2 + twinData.libraries.length + 1));
-  const other = await runScenarios({ ...options, seed: 8 });
-  assert.notEqual(other.baselineShortfall, one.baselineShortfall);
-  for (const list of Object.values(one.byResource)) for (let k = 1; k < list.length; k++) assert.ok(list[k - 1]!.meanGain >= list[k]!.meanGain);
-});
-
-test("the snapshot holds only published area-level aggregates", () => {
-  assert.deepEqual(Object.keys(twinData).sort(), ["areas", "cell_size_m", "cells", "generated_at", "libraries", "region", "sources", "stations"]);
-  for (const area of twinData.areas) assert.deepEqual(Object.keys(area).sort(), ["aged_75", "foreign_language", "id", "name", "population"]);
-  for (const cell of twinData.cells) assert.equal(cell.length, 4);
-  const station = Object.keys(twinData.stations[0]!).sort();
-  assert.deepEqual(station, ["full_name", "hours", "id", "lat", "lon", "name", "url", "wheelchair_shortcomings"]);
-  const text = JSON.stringify(twinData).toLowerCase();
-  for (const word of ["patient", "referral", "nationality", "citizenship", "immigra", "asylum"]) assert.ok(!text.includes(word), word);
-  assert.ok(twinData.sources.every(source => source.licence === "CC BY 4.0"));
+test("the snapshot holds only published aggregates and public places", () => {
+  assert.deepEqual(Object.keys(data).sort(), ["cell_km", "cells", "counties", "generated_at", "municipalities", "region", "sources", "stations", "stops"]);
+  for (const cell of data.cells) assert.equal(cell.length, 5);
+  assert.deepEqual(Object.keys(data.municipalities[0]!).sort(), ["code", "county", "foreign_language", "gp_visits_per_1000", "name", "wait_over_7_days"]);
+  const text = JSON.stringify(data).toLowerCase();
+  for (const word of ["patient", "referral", "nationality", "citizenship", "kansalai", "immigra", "asylum"]) assert.ok(!text.includes(word), word);
+  assert.ok(data.cells.reduce((sum, cell) => sum + cell[2], 0) > 5_000_000);
 });

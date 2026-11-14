@@ -11,12 +11,13 @@ public struct EnrollmentDraft: Sendable {
     public let clinicalProfile: ClinicalProfile?
     /// CNN + Gemini demo summary for the clinician; nil when no photo was assessed.
     public let lesionAssessment: String?
+    public let voiceResearch: VoiceResearchAssessment?
     public init(source: ReferralSource, language: String, concern: String, guidance: TriageGuidance,
                 letterText: String? = nil, lesionPresent: Bool = false, answers: [String: String] = [:], clinicalProfile: ClinicalProfile? = nil,
-                lesionAssessment: String? = nil) {
+                lesionAssessment: String? = nil, voiceResearch: VoiceResearchAssessment? = nil) {
         self.source = source; self.language = language; self.concern = concern; self.guidance = guidance
         self.letterText = letterText; self.lesionPresent = lesionPresent; self.answers = answers; self.clinicalProfile = clinicalProfile
-        self.lesionAssessment = lesionAssessment
+        self.lesionAssessment = lesionAssessment; self.voiceResearch = voiceResearch
     }
     static let unassessedPhoto = "Photo capture noted. Raw image is not retained and no image assessment was run (offline or no consent)."
     func lesionPhoto(previous: LesionPhoto? = nil) -> LesionPhoto {
@@ -37,6 +38,7 @@ public struct EnrollmentService: Sendable {
             key: try CommitmentCrypto.editingKey(passcode: passcode, salt: salt))
     }
     public func prepareUpdate(session: ReferralEditSession, draft: EnrollmentDraft) throws -> ReferralUpdate {
+        if let result = draft.voiceResearch, !result.isValid { throw CoreError.invalidConfiguration }
         guard !draft.concern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw CoreError.emptyConcern }
         let original = session.original
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
@@ -50,12 +52,14 @@ public struct EnrollmentService: Sendable {
             letterScan: LetterScan(present: draft.letterText != nil, extractedText: nil),
             lesionPhoto: draft.lesionPhoto(previous: original.lesionPhoto),
             signatureTemplateEncrypted: original.signatureTemplateEncrypted, triageDetailEncrypted: encrypted.base64EncodedString(),
-            salt: original.salt, commitmentHash: original.commitmentHash, status: original.status, expiresAt: original.expiresAt)
+            salt: original.salt, commitmentHash: original.commitmentHash, status: original.status, expiresAt: original.expiresAt,
+            voiceResearch: draft.voiceResearch ?? original.voiceResearch)
         return ReferralUpdate(expected: original, record: updated)
     }
     /// No passcode, raw signature or conversation survives outside the encrypted fields.
     public func enroll(draft: EnrollmentDraft, strokes: [[SignaturePoint]], passcode: String,
                        confirmation: String, now: Date = Date(), referralID: UUID = UUID()) throws -> ReferralRecord {
+        if let result = draft.voiceResearch, !result.isValid { throw CoreError.invalidConfiguration }
         try CommitmentCrypto.validate(passcode: passcode)
         try CommitmentCrypto.validate(passcode: confirmation)
         guard passcode == confirmation else { throw CoreError.passcodesDoNotMatch }
@@ -86,7 +90,7 @@ public struct EnrollmentService: Sendable {
             lesionPhoto: draft.lesionPhoto(),
             signatureTemplateEncrypted: signature.base64EncodedString(), triageDetailEncrypted: triage.base64EncodedString(),
             salt: salt.base64EncodedString(), commitmentHash: try CommitmentCrypto.commitment(template: template, passcode: passcode, referralID: referralID, salt: salt),
-            status: .open, expiresAt: formatter.string(from: now.addingTimeInterval(30 * 24 * 60 * 60)))
+            status: .open, expiresAt: formatter.string(from: now.addingTimeInterval(30 * 24 * 60 * 60)), voiceResearch: draft.voiceResearch)
     }
 }
 /// Not Codable: the unlocked encryption key lives only in the current kiosk session.

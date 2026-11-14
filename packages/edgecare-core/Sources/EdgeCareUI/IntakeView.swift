@@ -30,6 +30,12 @@ import EdgeCareCore
     public var photoConsent = false
     public var skinAssessment: SkinAssessmentResult?
     public var skinAssessmentUnavailable = false
+    public var voiceResearch: VoiceResearchAssessment?
+    public var voiceResearchDecision: String?
+    public var shouldOfferVoiceResearch: Bool {
+        VoiceResearchEligibility.shouldOffer(profile: clinicalProfile)
+    }
+    public func invalidateVoiceResearch() { voiceResearch = nil; voiceResearchDecision = nil }
     public var strokes: [[SignaturePoint]] = []
     public var passcode = ""
     public var confirmation = ""
@@ -129,6 +135,7 @@ import EdgeCareCore
         answers["urgent_now"] = urgent ?? "unsure"
         answers["persistent_or_changing"] = persistent ?? "unsure"
         if continuedAfterEmergencyAdvice { answers["emergency_advice_action"] = "continued_questionnaire_or_referral_after_112_advice" }
+        if let voiceResearchDecision { answers["voice_research_decision"] = voiceResearchDecision }
         return answers
     }
     private func annotated(_ result: TriageGuidance) -> TriageGuidance {
@@ -172,7 +179,7 @@ import EdgeCareCore
         let currentGeneration = generation
         busy = true; defer { if generation == currentGeneration { busy = false } }
         do {
-            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile, lesionAssessment: skinAssessment?.clinicianSummary)
+            let draft = EnrollmentDraft(source: source, language: language, concern: clinicalProfile.clinicianSummary + "\nPatient notes (original language): " + concern, guidance: guidance, letterText: letterText.isEmpty ? nil : letterText, lesionPresent: lesionPresent, answers: referralAnswers, clinicalProfile: clinicalProfile, lesionAssessment: skinAssessment?.clinicianSummary, voiceResearch: voiceResearch)
             let sealed: ReferralRecord
             if let editingReferral {
                 if pendingUpdate == nil { pendingUpdate = try EnrollmentService().prepareUpdate(session: editingReferral, draft: draft) }
@@ -202,6 +209,7 @@ import EdgeCareCore
         concern = ""; guidance = nil; step = 0; safety.reset(plan: []); safetyInput = nil; emergencyAdvicePending = false; continuedAfterEmergencyAdvice = false; letterText = ""; lesionPresent = false
         lesionImage = nil; photoConsent = false; skinAssessment = nil; skinAssessmentUnavailable = false
         strokes = []; passcode = ""; confirmation = ""; understood = false; record = nil; error = nil
+        invalidateVoiceResearch()
         language = "en"; languageChosen = false; languageDetected = false; lastActivity = Date()
     }
 }
@@ -231,6 +239,7 @@ private struct IntakeLayoutView: View {
     private let kiosk: Bool
     @StateObject private var speech = SpeechController()
     @State private var voiceScreenPresented = false
+    @State private var showingVoiceResearch = false
     @State private var idleSoon = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -264,9 +273,6 @@ private struct IntakeLayoutView: View {
                         .accessibilityLabel("\(model.step) / 7")
                 }
                 if app.session == nil, let message = app.message { Text(message).foregroundStyle(.red) }
-                if model.requiresEmergencyAdvice && model.step >= 2 && model.step != 5 && !model.emergencyAdvicePending {
-                    emergencyNotice
-                }
                 content.disabled(model.busy)
                 if let error = model.error { Label(error, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
                 if model.busy { ProgressView(t("saving")) }
@@ -297,6 +303,7 @@ private struct IntakeLayoutView: View {
         .onChange(of: model.language) { _, language in model.lastActivity = Date(); speech.stop(); app.language = language }
         .onChange(of: model.concern) { _, text in
             model.discardPreparedUpdate()
+            model.invalidateVoiceResearch()
             model.lastActivity = Date()
             if !model.languageChosen, !model.languageDetected, let language = detectedLanguage(text) {
                 model.language = language; model.languageDetected = true
@@ -305,7 +312,7 @@ private struct IntakeLayoutView: View {
         .onChange(of: model.step) { _, _ in model.lastActivity = Date(); speech.stop() }
         .onChange(of: model.inputMode) { _, _ in speech.stop() }
         .onChange(of: model.letterText) { _, _ in model.lastActivity = Date(); model.discardPreparedUpdate() }
-        .onChange(of: model.clinicalProfile) { _, _ in model.discardPreparedUpdate() }
+        .onChange(of: model.clinicalProfile) { _, _ in model.discardPreparedUpdate(); model.invalidateVoiceResearch() }
         .onChange(of: model.lesionPresent) { _, _ in model.discardPreparedUpdate() }
         .onChange(of: model.passcode) { _, _ in model.lastActivity = Date() }
         .onChange(of: model.confirmation) { _, _ in model.lastActivity = Date() }
@@ -341,6 +348,19 @@ private struct IntakeLayoutView: View {
             speech.stop(); model.passcode = ""; model.confirmation = ""
             if !voiceScreenPresented && model.isUpdatingReferral { model.reset() }
         }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showingVoiceResearch) { VoiceResearchView(model: model, app: app) }
+        #else
+        .sheet(isPresented: $showingVoiceResearch) { VoiceResearchView(model: model, app: app) }
+        #endif
+    }
+    private var voiceResearchEntry: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(t("voiceResearchTitle"), systemImage: "waveform.badge.exclamationmark").font(.headline)
+            Text(t("voiceResearchOffer")).font(.subheadline).foregroundStyle(.secondary)
+            Button { showingVoiceResearch = true } label: { Label(t("voiceResearchOpen"), systemImage: "mic.fill") }
+                .buttonStyle(.edgeCareSecondary).accessibilityIdentifier("voiceResearchOpen")
+        }.edgeCareCard(padding: 16).accessibilityIdentifier("voiceResearchOffer")
     }
     @ViewBuilder private var content: some View {
         switch model.step {
@@ -391,6 +411,7 @@ private struct IntakeLayoutView: View {
             }
         case 4:
             heading(t("evidence"))
+            if model.shouldOfferVoiceResearch, model.voiceResearch == nil, model.voiceResearchDecision != "declined" { voiceResearchEntry }
             EvidenceCapture(language: model.language, letterText: $model.letterText, lesionPresent: $model.lesionPresent,
                             lesionImage: $model.lesionImage, photoConsent: $model.photoConsent)
             if model.busy && model.photoConsent && model.lesionImage != nil { ProgressView(t("analysingPhoto")) }
@@ -404,16 +425,21 @@ private struct IntakeLayoutView: View {
                     Label(t("skinScoreUnavailable"), systemImage: "wifi.exclamationmark").font(.subheadline).foregroundStyle(.secondary)
                 }
                 Text(guidance.message).font(compact ? .body : .title3)
+                if let result = model.voiceResearch { VoiceResearchResultView(result: result, language: model.language) }
                 if !kiosk { Text(t("review")).font(.subheadline).foregroundStyle(.secondary) }
                 speechControls(prompt: guidance.message, input: false)
                 if !kiosk { safetySources }
                 if guidance.requiresEmergencyHelp {
-                    emergencyNotice
+                    if model.continuedAfterEmergencyAdvice {
+                        Label(t("emergencyAdvice"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    } else {
+                        emergencyNotice
+                        Text(t("emergencyContinueExplanation"))
+                    }
                     // Emergency advice stays first; the photo score follows it.
                     if let assessment = model.skinAssessment {
                         RiskScoreCard(assessment: assessment, language: model.language, compact: compact)
                     }
-                    Text(t("emergencyContinueExplanation"))
                     primary(t("continueReferral")) { model.proceedToReferral() }
                 } else { primary(t(model.isUpdatingReferral ? "reviewUpdate" : "seal")) { model.proceedToReferral() } }
                 if kiosk {
