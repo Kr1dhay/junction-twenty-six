@@ -1,0 +1,228 @@
+{
+  "version": "2.0",
+  "class": "dataset",
+  "label": "Population 31.12. by Year, Area, Urban-rural classification, Sex, Age and Information",
+  "source": "Statistics Finland, population structure",
+  "updated": "2026-05-29T05:00:00Z",
+  "note": [
+    "<A HREF='https://stat.fi/en/statistics/documentation/vaerak' TARGET=_blank>Documentation of statistics</A>"
+  ],
+  "role": {
+    "time": [
+      "timeperiod_y"
+    ],
+    "geo": [
+      "alue_23_20260101"
+    ],
+    "metric": [
+      "contentscode"
+    ]
+  },
+  "id": [
+    "timeperiod_y",
+    "alue_23_20260101",
+    "kaup_maaseutu_101_20190101",
+    "sukupuoli_9_20180101",
+    "ikaryhma_10_20180101",
+    "contentscode"
+  ],
+  "size": [
+    1,
+    1,
+    3,
+    1,
+    1,
+    1
+  ],
+  "dimension": {
+    "timeperiod_y": {
+      "label": "Year",
+      "category": {
+        "index": {
+          "2025": 0
+        },
+        "label": {
+          "2025": "2025"
+        }
+      },
+      "extension": {
+        "elimination": false,
+        "show": "value"
+      }
+    },
+    "alue_23_20260101": {
+      "label": "Area",
+      "note": [
+        "These statistics apply the regional division of 1 January 2026  to the whole time series. Data for merged municipalities have been combined. Partial municipal mergers have not been taken into account in the years preceding the merger."
+      ],
+      "category": {
+        "index": {
+          "SSS": 0
+        },
+        "label": {
+          "SSS": "WHOLE COUNTRY"
+        }
+      },
+      "extension": {
+        "elimination": true,
+        "eliminationValueCode": "SSS",
+        "show": "value"
+      },
+      "link": {
+        "describedby": [
+          {
+            "extension": {
+              "alue_23_20260101": "SCALE-TYPE=nominal"
+            }
+          }
+        ]
+      }
+    },
+    "kaup_maaseutu_101_20190101": {
+      "label": "Urban-rural classification",
+      "note": [
+        "Urban-rural classification is explained on the <A HREF=http://stat.fi/meta/kas/kaupunki_maaseu.html TARGET=_blank>Concepts webpage, see the link</A>."
+      ],
+      "category": {
+        "index": {
+          "SSS": 0,
+          "MS": 1,
+          "M7": 2
+        },
+        "label": {
+          "SSS": "TOTAL",
+          "MS": "RURAL AREAS",
+          "M7": "Sparsely populated rural areas"
+        }
+      },
+      "extension": {
+        "elimination": true,
+        "eliminationValueCode": "SSS",
+        "show": "value"
+      },
+      "link": {
+        "describedby": [
+          {
+            "extension": {
+              "kaup_maaseutu_101_20190101": "SCALE-TYPE=nominal"
+            }
+          }
+        ]
+      }
+    },
+    "sukupuoli_9_20180101": {
+      "label": "Sex",
+      "category": {
+        "index": {
+          "SSS": 0
+        },
+        "label": {
+          "SSS": "Total"
+        }
+      },
+      "extension": {
+        "elimination": true,
+        "eliminationValueCode": "SSS",
+        "show": "value"
+      },
+      "link": {
+        "describedby": [
+          {
+            "extension": {
+              "sukupuoli_9_20180101": "SCALE-TYPE=nominal"
+            }
+          }
+        ]
+      }
+    },
+    "ikaryhma_10_20180101": {
+      "label": "Age",
+      "note": [
+        "Age refers to a person's age in whole years as at 31 December."
+      ],
+      "category": {
+        "index": {
+          "SSS": 0
+        },
+        "label": {
+          "SSS": "Total"
+        }
+      },
+      "extension": {
+        "elimination": true,
+        "eliminationValueCode": "SSS",
+        "show": "value"
+      },
+      "link": {
+        "describedby": [
+          {
+            "extension": {
+              "ikaryhma_10_20180101": "SCALE-TYPE=ordinal"
+            }
+          }
+        ]
+      }
+    },
+    "contentscode": {
+      "label": "Information",
+      "category": {
+        "index": {
+          "vaerak-vaesto": 0
+        },
+        "label": {
+          "vaerak-vaesto": "Population 31 Dec"
+        },
+        "note": {
+          "vaerak-vaesto": [
+            "Population at the end of the statistical reference period."
+          ]
+        },
+        "unit": {
+          "vaerak-vaesto": {
+            "base": "number",
+            "decimals": 0
+          }
+        }
+      },
+      "extension": {
+        "elimination": false,
+        "show": "value"
+      }
+    }
+  },
+  "extension": {
+    "px": {
+      "tableid": "11s3",
+      "decimals": 0,
+      "official-statistics": true,
+      "aggregallowed": true,
+      "language": "fi",
+      "contents": "Population 31.12.",
+      "description": "11s3 -- Population according to urban-rural classification by age and sex, 2000-2025",
+      "descriptiondefault": false,
+      "heading": [
+        "sukupuoli_9_20180101",
+        "ikaryhma_10_20180101",
+        "contentscode"
+      ],
+      "stub": [
+        "timeperiod_y",
+        "alue_23_20260101",
+        "kaup_maaseutu_101_20190101"
+      ],
+      "matrix": "11s3",
+      "subject-code": "vaerak",
+      "subject-area": "Population structure"
+    },
+    "contact": [
+      {
+        "raw": "<A HREF='https://stat.fi/en/statistics/vaerak' TARGET=_blank>Statistics' homepage</A>"
+      }
+    ]
+  },
+  "value": [
+    5652881,
+    1410954,
+    247980
+  ]
+}

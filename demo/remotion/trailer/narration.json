@@ -1,0 +1,62 @@
+[
+  {
+    "id": "opening",
+    "text": "Across Finland, language, anxiety, distance and missing paperwork can put care out of reach, so we're bringing the first conversation into familiar places, closer to home.",
+    "duration": 11.331338
+  },
+  {
+    "id": "welcome",
+    "text": "Edge Care is a physical iPad kiosk for libraries and community centres. Walk up and talk to Edi, powered by Gemini.",
+    "duration": 7.383946
+  },
+  {
+    "id": "research",
+    "text": "An optional voice sample supports clinician review. Never a cancer diagnosis.",
+    "duration": 4.92263
+  },
+  {
+    "id": "research-end",
+    "text": "For clinician review. Never a cancer diagnosis.",
+    "duration": 2.879274
+  },
+  {
+    "id": "handoff",
+    "text": "Scan a letter. Add a skin photo. Leave with clear guidance. A signature and four digits protect the handoff, designed for single use with Solana.",
+    "duration": 10.44898
+  },
+  {
+    "id": "doctor",
+    "text": "At the doctor, ElevenLabs turns two languages into one conversation.",
+    "duration": 4.504671
+  },
+  {
+    "id": "crm",
+    "text": "Referrals, visits and follow-up come together. Public Finnish data reveals access gaps. Test where another doctor, interpreter or mobile clinic could help.",
+    "duration": 10.21678
+  },
+  {
+    "id": "closing",
+    "text": "Edge Care. An easier first step. A clearer path to care.",
+    "duration": 3.808073
+  },
+  {
+    "id": "guidance",
+    "text": "Edi summarises your symptoms and recommends the next step. Here, the referral is high priority: speak to a medical professional as soon as possible.",
+    "duration": 9.520181
+  },
+  {
+    "id": "tour-intro",
+    "text": "In the digital twin, explore how far people travel, where doctor capacity is stretched, and who may need an interpreter.",
+    "duration": 6.780227
+  },
+  {
+    "id": "tour-closure",
+    "text": "Test a clinic closure.",
+    "duration": 1.253878
+  },
+  {
+    "id": "tour-mobile",
+    "text": "Then simulate a mobile clinic, and compare where it could help most.",
+    "duration": 3.993832
+  }
+]

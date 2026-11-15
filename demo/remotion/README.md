@@ -1,5 +1,7 @@
 # Edge-Care demo video
 
+The final **V4 production trailer (1:56.5)**, including recorded app footage and the full digital-twin tour, lives in [`trailer/`](trailer/README.md). The commands below open the original storyboard.
+
 A 90-second Remotion composition follows the six story beats in the project brief with AstraZeneca brand colors and restrained Apple-style typography. The composition needs no external service to render. Rendering requires a compatible Remotion host (including glibc 2.35+ on Linux); the supplied glibc 2.31 host cannot verify the video renderer. Its default frames are explicitly labeled an illustrated storyboard; no simulated UI is passed off as recorded application footage.
 
 ```sh

@@ -1,0 +1,151 @@
+{
+  "opening": [
+    {
+      "start": 0.08,
+      "end": 4.86,
+      "text": "Across Finland, language, anxiety, distance and missing paperwork"
+    },
+    {
+      "start": 4.98,
+      "end": 6.26,
+      "text": "can put care out of reach,"
+    },
+    {
+      "start": 6.82,
+      "end": 11.1,
+      "text": "so we're bringing the first conversation into familiar places, closer to home."
+    }
+  ],
+  "welcome": [
+    {
+      "start": 0.06,
+      "end": 4.2,
+      "text": "Edge Care is a physical iPad kiosk for libraries and community centres."
+    },
+    {
+      "start": 4.48,
+      "end": 7.28,
+      "text": "Walk up and talk to Edi, powered by Gemini."
+    }
+  ],
+  "research": [
+    {
+      "start": 0.06,
+      "end": 2.68,
+      "text": "An optional voice sample supports clinician review."
+    },
+    {
+      "start": 3.06,
+      "end": 4.66,
+      "text": "Never a cancer diagnosis."
+    }
+  ],
+  "research-end": [
+    {
+      "start": 0.08,
+      "end": 0.98,
+      "text": "For clinician review."
+    },
+    {
+      "start": 1.3,
+      "end": 2.66,
+      "text": "Never a cancer diagnosis."
+    }
+  ],
+  "handoff": [
+    {
+      "start": 0.12,
+      "end": 0.68,
+      "text": "Scan a letter."
+    },
+    {
+      "start": 1.16,
+      "end": 2.38,
+      "text": "Add a skin photo."
+    },
+    {
+      "start": 2.84,
+      "end": 4.22,
+      "text": "Leave with clear guidance."
+    },
+    {
+      "start": 4.68,
+      "end": 10.24,
+      "text": "A signature and four digits protect the handoff, designed for single use with Solana."
+    }
+  ],
+  "doctor": [
+    {
+      "start": 0.08,
+      "end": 4.26,
+      "text": "At the doctor, ElevenLabs turns two languages into one conversation."
+    }
+  ],
+  "crm": [
+    {
+      "start": 0.08,
+      "end": 2.86,
+      "text": "Referrals, visits and follow-up come together."
+    },
+    {
+      "start": 3.12,
+      "end": 5.72,
+      "text": "Public Finnish data reveals access gaps."
+    },
+    {
+      "start": 6.32,
+      "end": 10.0,
+      "text": "Test where another doctor, interpreter or mobile clinic could help."
+    }
+  ],
+  "closing": [
+    {
+      "start": 0.06,
+      "end": 0.56,
+      "text": "Edge Care."
+    },
+    {
+      "start": 0.74,
+      "end": 1.92,
+      "text": "An easier first step."
+    },
+    {
+      "start": 2.18,
+      "end": 3.44,
+      "text": "A clearer path to care."
+    }
+  ],
+  "guidance": [
+    {
+      "start": 0.08,
+      "end": 3.34,
+      "text": "Edi summarises your symptoms and recommends the next step."
+    },
+    {
+      "start": 3.58,
+      "end": 9.28,
+      "text": "Here, the referral is high priority: speak to a medical professional as soon as possible."
+    }
+  ],
+  "tour-intro": [
+    {
+      "start": 0.08,
+      "end": 6.58,
+      "text": "In the digital twin, explore how far people travel, where doctor capacity is stretched, and who may need an interpreter."
+    }
+  ],
+  "tour-closure": [
+    {
+      "start": 0.08,
+      "end": 1.04,
+      "text": "Test a clinic closure."
+    }
+  ],
+  "tour-mobile": [
+    {
+      "start": 0.1,
+      "end": 3.76,
+      "text": "Then simulate a mobile clinic, and compare where it could help most."
+    }
+  ]
+}

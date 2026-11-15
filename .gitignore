@@ -16,6 +16,8 @@ target/
 .anchor/
 test-ledger/
 demo/remotion/out/
+demo/remotion/trailer/public/frames/
+demo/remotion/trailer/out/
 apps/crm-web/next-env.d.ts
 
 artifacts/

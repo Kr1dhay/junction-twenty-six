@@ -1,0 +1,12 @@
+{
+  "video": "EdgeCare-Trailer-V4-1080p.mp4",
+  "resolution": "1920x1080",
+  "fps": 30,
+  "duration_seconds": 116.5,
+  "hard_cap_seconds": 125,
+  "size_mb": 57.3,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "full_decode": "passed",
+  "audio_summary": "Summary:\n\n  Integrated loudness:\n    I:         -15.9 LUFS\n    Threshold: -27.0 LUFS\n\n  Loudness range:\n    LRA:         8.1 LU\n    Threshold: -37.0 LUFS\n    LRA low:   -21.0 LUFS\n    LRA high:  -12.9 LUFS\n\n  True peak:\n    Peak:       -1.5 dBFS"
+}

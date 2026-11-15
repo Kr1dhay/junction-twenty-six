@@ -6,11 +6,22 @@
     "studio": "remotion studio src/index.tsx",
     "render": "remotion render src/index.tsx EdgeCare out/edgecare.mp4",
     "still": "remotion still src/index.tsx EdgeCare out/preview.png --frame=150",
+    "trailer:prepare": "python3 trailer/prepare-frames.py",
+    "trailer:studio": "remotion studio trailer/src/index.tsx --public-dir=trailer/public",
+    "trailer:preview": "node trailer/render.mjs --preview",
+    "trailer:render": "node trailer/render.mjs && python3 trailer/finalize.py",
+    "trailer:subtitles": "python3 trailer/make-subtitles.py",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "remotion": "4.0.543",
     "@remotion/cli": "4.0.543",
+    "@remotion/bundler": "4.0.543",
+    "@remotion/renderer": "4.0.543",
+    "@remotion/transitions": "4.0.543",
+    "@remotion/shapes": "4.0.543",
+    "@remotion/paths": "4.0.543",
+    "lucide-react": "0.468.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
