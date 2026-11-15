@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const scriptUrl = document.currentScript.src;
   const toggle = document.querySelector('.nav-toggle');
   const nav = document.querySelector('.nav-links');
   toggle?.addEventListener('click', () => {
@@ -37,7 +38,7 @@
     const image = document.getElementById('flow-image');
     if (image) {
       const [src, alt, caption] = shots[index];
-      image.src = src; image.alt = alt;
+      image.src = new URL(src, scriptUrl).href; image.alt = alt;
       image.closest('.flow-shot')?.classList.toggle('is-phone', src.includes('doctor-'));
       document.getElementById('flow-caption').textContent = caption;
     }

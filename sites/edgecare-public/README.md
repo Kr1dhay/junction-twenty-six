@@ -8,13 +8,15 @@ Run `node serve.mjs` and visit http://127.0.0.1:4317.
 
 ## Contents
 
-- `dist/index.html`: solution, audience, kiosk/doctor/web app screenshots (including one per journey step) and direct demo links, evidence and partner brief.
+- `../../index.html`: solution, audience, kiosk/doctor/web app screenshots (including one per journey step) and direct demo links, evidence and partner brief.
 - `dist/pilot.html`: proposed pilot and evaluation.
 - `dist/privacy.html`: demonstration and website privacy information.
 - `dist/app.js`: navigation, accessible journey tabs, copyable discussion outline.
 - `dist/partner-brief.md`: downloadable partnership brief.
 
 No contact email was supplied. The partnership section provides a download and copyable outline rather than a form. No backend, health-data collection, external analytics, AI calls or real booking integration is included.
+
+The homepage lives at the repository root; supporting pages and assets remain in `dist/`. The preview server serves this layout.
 
 Hosting identity is retained in `.openai/hosting.json`. Use the Sites source workflow for subsequent publication.
 
